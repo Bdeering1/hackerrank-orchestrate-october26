@@ -7,3 +7,13 @@
 - Install the pre-commit hook once per clone: `git config core.hooksPath .githooks`. It runs
   ruff check, ruff format and basedpyright on staged files; the full check suite runs in CI.
 - `code/.github` and `code/.githooks` symlink to the root directories so `code.zip` includes them.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `Bdeering1/hackerrank-orchestrate-october26`, via `gh`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
