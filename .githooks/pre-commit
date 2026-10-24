@@ -1,5 +1,4 @@
 #!/bin/sh
-# git exports GIT_DIR to hooks in linked worktrees, which makes cwd the work tree root
 export GIT_WORK_TREE="$PWD"
 cd code || exit 1
 
