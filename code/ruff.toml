@@ -1,0 +1,93 @@
+line-length = 100
+target-version = "py314"
+
+[lint]
+# pinned so ruff 0.17's expanded defaults don't add BLE001, FA and INT
+select = ["E4", "E7", "E9", "F"]
+extend-select = [
+    # typing
+    "ANN",
+    "PYI",
+    "TC",
+    # security and bug-prone patterns
+    "YTT",
+    "S",
+    "ASYNC",
+    "B",
+    "A",
+    "DTZ",
+    "LOG",
+    "G",
+    "SLOT",
+    # explicit interfaces and exceptions
+    "FBT",
+    "RSE",
+    "RET",
+    "SLF",
+    "ARG",
+    "TRY",
+    # leftovers, imports, and structure
+    "T10",
+    "T20",
+    "PGH",
+    "FIX",
+    "I",
+    "ICN",
+    "INP",
+    "TID",
+    "EXE",
+    # style, simplification, and complexity
+    "PT",
+    "UP",
+    "C4",
+    "PIE",
+    "SIM",
+    "PTH",
+    "FLY",
+    "PERF",
+    "FURB",
+    "C90",
+    "PL",
+    "W",
+    "N",
+    "ISC",
+    "RUF",
+    "PLR0917",
+    # docstrings
+    "D",
+]
+ignore = [
+    "TRY003",  # heavier than needed
+    "ISC001",  # conflicts with the formatter
+    "PLR0911", # return-statement cap fights guard clauses and early returns
+    "PLR0913", # argument-count cap forces awkward bundling
+    "D1",      # allow codebase conventions to dictate docstring usage
+    "D204",    # blank line after class docstring is a codebase choice
+    "D401",    # imperative mood is pedantry
+]
+
+[lint.per-file-ignores]
+"tests/**" = [
+    "S101",    # pytest asserts
+    "ARG",     # fixtures injected for side effects
+    "PLR2004", # literal expected values in assertions
+    "SLF001",  # tests may probe private helpers
+    "TC",      # tests do not require TYPE_CHECKING block
+    "ANN001",  # test functions do not require argument annotations
+    "ANN201",  # test functions do not require `-> None`
+    "ANN204",  # fakes do not require `__init__` annotations
+    "TID251",  # tests may use owned libraries directly
+    "PLR0917", # parametrized tests take many positional arguments
+]
+
+[lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
+
+[lint.pylint]
+max-positional-args = 6
+
+[lint.mccabe]
+max-complexity = 12
+
+[lint.pydocstyle]
+convention = "pep257"

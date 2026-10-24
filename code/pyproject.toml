@@ -1,0 +1,68 @@
+[project]
+name = "ghost-audit"
+version = "0.1.0"
+description = "Deletion-audit agent for HackerRank Orchestrate: Ghost Data Still Exists"
+requires-python = ">=3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.40.2",
+    "import-linter>=2.15",
+    "pytest>=9.1.1",
+    "pytest-randomly>=5.0.0",
+    "pytest-socket>=0.8.1",
+    "ruff>=0.16.2",
+    "zizmor>=1.31.1",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ghost_audit"]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers --strict-config --disable-socket --allow-unix-socket"
+filterwarnings = ["error"]
+xfail_strict = true
+
+[tool.basedpyright]
+typeCheckingMode = "strict"
+include = ["ghost_audit", "tests", "main.py", "evaluation"]
+reportAny = "error"
+reportUnreachable = "error"
+reportDeprecated = "error"
+reportImplicitOverride = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+extraPaths = ["."]
+reportMissingParameterType = "none"
+reportMissingTypeArgument = "none"
+reportPrivateUsage = "none"
+reportUnknownArgumentType = "none"
+reportUnknownLambdaType = "none"
+reportUnknownMemberType = "none"
+reportUnknownParameterType = "none"
+reportUnknownVariableType = "none"
+reportUntypedFunctionDecorator = "none"
+reportAny = "none"
+reportUnreachable = "none"
+reportDeprecated = "none"
+reportImplicitOverride = "none"
+reportUnnecessaryTypeIgnoreComment = "none"
+
+[tool.importlinter]
+root_package = "ghost_audit"
+
+[[tool.importlinter.contracts]]
+name = "No cycles"
+type = "acyclic_siblings"
+ancestors = ["ghost_audit"]
