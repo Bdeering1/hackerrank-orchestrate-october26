@@ -8,14 +8,14 @@ if typing.TYPE_CHECKING:
     from pathlib import Path
 
 
-def status_accuracy(predictions_path: Path, labels_path: Path) -> tuple[int, int]:
+def status_match_counts(predictions_path: Path, labels_path: Path) -> tuple[int, int]:
     """Return matching statuses and total labelled cases."""
     predictions = _statuses_by_case(predictions_path)
     labels = _statuses_by_case(labels_path)
-    matches = sum(
+    match_count = sum(
         predictions.get(case_id) == deletion_status for case_id, deletion_status in labels.items()
     )
-    return matches, len(labels)
+    return match_count, len(labels)
 
 
 def _statuses_by_case(path: Path) -> dict[str, str]:

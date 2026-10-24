@@ -2,7 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from evaluation.score import status_accuracy
+from evaluation.score import status_match_counts
 from evaluation.validate import data_rows, validation_errors
 
 DATASET_DIR = Path(__file__).resolve().parents[2] / "dataset"
@@ -25,9 +25,9 @@ def main(argv: list[str]) -> int:
             sys.stderr.write(f"{error}\n")
         return 1
 
-    matches, total = status_accuracy(predictions_path, LABELS_PATH)
-    percentage = matches / total * 100
-    sys.stdout.write(f"status accuracy: {matches}/{total} ({percentage:.1f}%)\n")
+    match_count, case_count = status_match_counts(predictions_path, LABELS_PATH)
+    percentage = match_count / case_count * 100
+    sys.stdout.write(f"status accuracy: {match_count}/{case_count} ({percentage:.1f}%)\n")
     return 0
 
 

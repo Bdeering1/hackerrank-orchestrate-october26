@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from evaluation.main import main
-from evaluation.validate import validation_errors
+from evaluation.validate import csv_rows, validation_errors
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_OUTPUT_PATH = REPO_ROOT / "dataset" / "sample_output.csv"
@@ -37,8 +37,7 @@ def test_main_reports_status_mismatch(capsys: pytest.CaptureFixture[str], tmp_pa
 
 
 def _sample_output_rows() -> CsvRows:
-    with SAMPLE_OUTPUT_PATH.open(encoding="utf-8", newline="") as sample_file:
-        return list(csv.reader(sample_file))
+    return csv_rows(SAMPLE_OUTPUT_PATH)
 
 
 def _write_rows(path: Path, rows: CsvRows) -> None:
@@ -59,6 +58,10 @@ def _with_out_of_order_rows(rows: CsvRows) -> CsvRows:
     return rows
 
 
+def _with_extra_row(rows: CsvRows) -> CsvRows:
+    return [*rows, ["case_33", *rows[1][1:]]]
+
+
 def _with_invalid_status(rows: CsvRows) -> CsvRows:
     rows[1][1] = "INVALID"
     return rows
@@ -77,32 +80,46 @@ def _with_wrong_header(rows: CsvRows) -> CsvRows:
 @pytest.mark.parametrize(
     ("mutate_rows", "expected_problem"),
     [
-        pytest.param(_without_last_row, "case_32", id="missing-case"),
-        pytest.param(_with_duplicate_row, FIRST_CASE_ID, id="duplicate-case"),
-        pytest.param(_with_out_of_order_rows, "case_09", id="out-of-order"),
-        pytest.param(_with_invalid_status, FIRST_CASE_ID, id="invalid-status"),
-        pytest.param(_with_non_array_steps, FIRST_CASE_ID, id="non-array-steps"),
-        pytest.param(_with_wrong_header, "header", id="wrong-header"),
-        pytest.param(None, "cannot read", id="non-utf8"),
+        pytest.param(_without_last_row, "missing case_id: case_32", id="missing-case"),
+        pytest.param(
+            _with_duplicate_row, f"({FIRST_CASE_ID}): duplicate case_id", id="duplicate-case"
+        ),
+        pytest.param(_with_extra_row, "(case_33): unexpected case_id", id="extra-case"),
+        pytest.param(_with_out_of_order_rows, "(case_09): rows are not sorted", id="out-of-order"),
+        pytest.param(
+            _with_invalid_status, f"({FIRST_CASE_ID}): invalid deletion_status", id="invalid-status"
+        ),
+        pytest.param(
+            _with_non_array_steps,
+            f"({FIRST_CASE_ID}): steps_json is not a JSON array",
+            id="non-array-steps",
+        ),
+        pytest.param(_with_wrong_header, "line 1: header must be", id="wrong-header"),
     ],
 )
 def test_main_reports_validation_errors(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    mutate_rows: RowsMutator | None,
+    mutate_rows: RowsMutator,
     expected_problem: str,
 ) -> None:
     predictions_path = tmp_path / PREDICTIONS_FILENAME
-    if mutate_rows is None:
-        predictions_path.write_bytes(b"\xff")
-    else:
-        _write_rows(predictions_path, mutate_rows(_sample_output_rows()))
+    _write_rows(predictions_path, mutate_rows(_sample_output_rows()))
 
     assert main(["--predictions", str(predictions_path)]) == 1
 
     captured = capsys.readouterr()
     assert "validation failed" in captured.err
     assert expected_problem in captured.err
+
+
+def test_main_reports_unreadable_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    predictions_path = tmp_path / PREDICTIONS_FILENAME
+    predictions_path.write_bytes(b"\xff")
+
+    assert main(["--predictions", str(predictions_path)]) == 1
+
+    assert "cannot read" in capsys.readouterr().err
 
 
 def test_validation_uses_numeric_case_order(tmp_path: Path) -> None:
@@ -116,6 +133,6 @@ def test_validation_uses_numeric_case_order(tmp_path: Path) -> None:
     rows[1], rows[2] = rows[2], rows[1]
     _write_rows(predictions_path, rows)
 
-    assert any(
-        "case_99" in error for error in validation_errors(predictions_path, ["case_99", "case_100"])
-    )
+    assert validation_errors(predictions_path, ["case_99", "case_100"]) == [
+        "line 3 (case_99): rows are not sorted by case number"
+    ]
