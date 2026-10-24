@@ -20,8 +20,10 @@ and unused imports earn nothing. Don't use other files in the repo (decisions, l
 to credit intent.
 
 The rubric was written for an earlier support-triage challenge. Judge each criterion by its
-equivalent in this one (for example, retrieval pipeline quality covers how evidence is
-located and matched to a case).
+equivalent in this one. For example, retrieval pipeline quality covers how evidence is
+located and matched to a case, and refusal conditions cover when the prompts tell the model
+not to act: a request that doesn't authorize deletion, evidence captured after `audit_at`,
+or a finding no evidence supports.
 
 Report each dimension's score with file:line evidence, the weighted total, and improvements
 ranked by expected gain in the weighted total. Don't edit code.
