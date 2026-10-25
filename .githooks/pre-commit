@@ -1,4 +1,5 @@
 #!/bin/sh
+export GIT_WORK_TREE="$PWD"
 cd code || exit 1
 
 staged_python_files() {
