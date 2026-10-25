@@ -142,6 +142,8 @@ class _EvidenceReader:
         copy: str,
         records: Sequence[Record],
         observed_at: datetime,
+        *,
+        is_partial: bool = False,
     ) -> None:
         for record in records:
             self._observe(category, system, copy, record, observed_at)
@@ -153,6 +155,7 @@ class _EvidenceReader:
                 resource_ids=frozenset(str(record[RESOURCE_ID]) for record in records),
                 observed_at=observed_at,
                 evidence_id=self._evidence_id,
+                is_partial=is_partial,
             )
         )
 
@@ -261,8 +264,14 @@ class _EvidenceReader:
             records = [
                 item for item in map(_as_record, _as_list(record["records"])) if item is not None
             ]
+            # Bundle snapshots are extracts of selected customers, not whole collections.
             self._read_snapshot(
-                category, system, PRIMARY_COPY, records, _time(record["captured_at"])
+                category,
+                system,
+                PRIMARY_COPY,
+                records,
+                _time(record["captured_at"]),
+                is_partial=True,
             )
             return
         for value in record.values():

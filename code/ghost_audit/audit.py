@@ -181,6 +181,7 @@ class Auditor:
             )
             for observation in observations
         ]
+        coverages = self._coverages_by_scope.get((system, category), [])
         proofs.extend(
             _Proof(
                 coverage.copy,
@@ -189,10 +190,27 @@ class Auditor:
                 coverage.evidence_id,
                 is_observation=False,
             )
-            for coverage in self._coverages_by_scope.get((system, category), ())
-            if coverage.observed_at <= at and resource_id not in coverage.resource_ids
+            for coverage in coverages
+            if coverage.observed_at <= at and _proves_absent(coverage, resource_id, coverages)
         )
         return PLAN_RULES[self._dataset.required_actions[category]], proofs
+
+
+def _proves_absent(coverage: Coverage, resource_id: str, coverages: Iterable[Coverage]) -> bool:
+    """Return whether coverage omits resource_id where it would have listed it.
+
+    A partial snapshot only proves absence of a resource an earlier snapshot of its copy listed.
+    """
+    if resource_id in coverage.resource_ids:
+        return False
+    if not coverage.is_partial:
+        return True
+    return any(
+        earlier.copy == coverage.copy
+        and earlier.observed_at < coverage.observed_at
+        and resource_id in earlier.resource_ids
+        for earlier in coverages
+    )
 
 
 def _authorizes_deletion(_request_text: str) -> bool:

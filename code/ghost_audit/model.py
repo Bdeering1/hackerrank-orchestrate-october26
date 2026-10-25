@@ -27,7 +27,10 @@ class Observation:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Coverage:
-    """A snapshot listing every record of one category in one system copy."""
+    """A snapshot listing records of one category in one system copy.
+
+    A partial snapshot is an extract that need not list every record.
+    """
 
     system: str
     category: str
@@ -35,6 +38,7 @@ class Coverage:
     resource_ids: frozenset[str]
     observed_at: datetime
     evidence_id: str
+    is_partial: bool
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

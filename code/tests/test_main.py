@@ -239,6 +239,12 @@ def test_main_writes_valid_output_and_usage(run):
             _absent_steps("search_501", "evidence_13", SEARCH_SYSTEM),
             id="search index entry dropped from later snapshot",
         ),
+        pytest.param(
+            "case_25",
+            "INCOMPLETE",
+            _remaining_steps("search_601", "evidence_02", SEARCH_SYSTEM),
+            id="later partial snapshot never listed the search entry",
+        ),
     ],
 )
 def test_main_audits_records(run, case_id, expected_status, expected_steps):
