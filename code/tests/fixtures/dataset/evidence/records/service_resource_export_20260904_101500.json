@@ -27,6 +27,45 @@
           "profile": null,
           "resource_id": "account_606",
           "status_code": 404
+        },
+        {
+          "observed_at": "2026-09-04T09:45:00Z",
+          "profile": null,
+          "resource_id": "account_2101",
+          "customer_reference": "user_21",
+          "status_code": 200
+        }
+      ]
+    },
+    "integration_service": {
+      "connectors": [
+        {
+          "resource_id": "data_flow_2101",
+          "customer_reference": "user_21",
+          "enabled": true,
+          "observed_at": "2026-09-04T09:45:00Z"
+        },
+        {
+          "resource_id": "data_flow_2202",
+          "customer_reference": "user_22",
+          "enabled": false,
+          "observed_at": "2026-09-04T09:45:00Z"
+        }
+      ]
+    },
+    "backup_service": {
+      "restore_entries": [
+        {
+          "resource_id": "backup_2101",
+          "customer_reference": "user_21",
+          "restore_allowed": true,
+          "observed_at": "2026-09-04T09:45:00Z"
+        },
+        {
+          "resource_id": "backup_2202",
+          "customer_reference": "user_22",
+          "restore_allowed": false,
+          "observed_at": "2026-09-04T09:45:00Z"
         }
       ]
     }

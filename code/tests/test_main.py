@@ -19,15 +19,23 @@ from tests.fakes import (
 DATASET_DIR = Path(__file__).resolve().parent / "fixtures" / "dataset"
 REQUESTS_PATH = DATASET_DIR / "deletion_requests.csv"
 ACCOUNT_SYSTEM = "account_service"
+BACKUP_SYSTEM = "backup_service"
+DATA_FLOW_SYSTEM = "integration_service"
 
 
 def _step(
-    step_no: int, phase: str, resource_id: str, operation: str, state: str, evidence_id: str
+    step_no: int,
+    phase: str,
+    resource_id: str,
+    operation: str,
+    state: str,
+    evidence_id: str,
+    system_id: str = ACCOUNT_SYSTEM,
 ) -> dict[str, object]:
     return {
         "step_no": step_no,
         "phase": phase,
-        "system_id": ACCOUNT_SYSTEM,
+        "system_id": system_id,
         "resource_id": resource_id,
         "operation": operation,
         "state": state,
@@ -45,6 +53,71 @@ def _remaining_account_steps(resource_id: str, evidence_id: str) -> list[dict[st
 
 def _absent_account_steps(resource_id: str, evidence_id: str) -> list[dict[str, object]]:
     return [_step(1, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", evidence_id)]
+
+
+def _remaining_account_flow_and_backup_steps(evidence_id: str) -> list[dict[str, object]]:
+    return [
+        _step(1, "FINDING", "account_2101", "REPORT_REMAINING_RECORD", "PRESENT", evidence_id),
+        _step(
+            2,
+            "FINDING",
+            "data_flow_2101",
+            "REPORT_ACTIVE_DATA_FLOW",
+            "ACTIVE",
+            evidence_id,
+            DATA_FLOW_SYSTEM,
+        ),
+        _step(
+            3, "FINDING", "backup_2101", "REPORT_RESTORE_RISK", "ACTIVE", evidence_id, BACKUP_SYSTEM
+        ),
+        _step(
+            4,
+            "REMEDIATION",
+            "data_flow_2101",
+            "DISABLE_DATA_FLOW",
+            "DISABLED",
+            "",
+            DATA_FLOW_SYSTEM,
+        ),
+        _step(5, "REMEDIATION", "backup_2101", "BLOCK_RESTORE", "BLOCKED", "", BACKUP_SYSTEM),
+        _step(6, "REMEDIATION", "account_2101", "DELETE_RECORD", "ABSENT", ""),
+        _step(7, "VERIFICATION", "account_2101", "VERIFY_RECORD_ABSENT", "ABSENT", ""),
+        _step(
+            8,
+            "VERIFICATION",
+            "data_flow_2101",
+            "VERIFY_DATA_FLOW_DISABLED",
+            "DISABLED",
+            "",
+            DATA_FLOW_SYSTEM,
+        ),
+        _step(
+            9, "VERIFICATION", "backup_2101", "VERIFY_RESTORE_BLOCKED", "BLOCKED", "", BACKUP_SYSTEM
+        ),
+    ]
+
+
+def _blocked_flow_and_backup_steps(evidence_id: str) -> list[dict[str, object]]:
+    return [
+        _step(
+            1,
+            "VERIFICATION",
+            "data_flow_2202",
+            "VERIFY_DATA_FLOW_DISABLED",
+            "DISABLED",
+            evidence_id,
+            DATA_FLOW_SYSTEM,
+        ),
+        _step(
+            2,
+            "VERIFICATION",
+            "backup_2202",
+            "VERIFY_RESTORE_BLOCKED",
+            "BLOCKED",
+            evidence_id,
+            BACKUP_SYSTEM,
+        ),
+    ]
 
 
 @pytest.fixture(scope="module")
@@ -210,9 +283,21 @@ def test_main_writes_valid_output_and_usage(run):
             _absent_account_steps("account_1819", "evidence_02"),
             id="account deleted before an earlier request ignored",
         ),
+        pytest.param(
+            "case_21",
+            "INCOMPLETE",
+            _remaining_account_flow_and_backup_steps("evidence_04"),
+            id="active connector and restorable backup survive snapshot omission",
+        ),
+        pytest.param(
+            "case_22",
+            "COMPLETE",
+            _blocked_flow_and_backup_steps("evidence_04"),
+            id="disabled connector and blocked backup",
+        ),
     ],
 )
-def test_main_audits_account_records(run, case_id, expected_status, expected_steps):
+def test_main_audits_records(run, case_id, expected_status, expected_steps):
     _, output_dir = run
     output_rows = {
         row[0]: (row[1], json.loads(row[2])) for row in data_rows(output_dir / "output.csv")

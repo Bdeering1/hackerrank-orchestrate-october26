@@ -5,8 +5,30 @@ import importlib
 import pkgutil
 import typing
 
+from ghost_audit.model import ACTIVE
+
 if typing.TYPE_CHECKING:
     from collections.abc import Callable, Mapping
+
+
+TRUE_TEXT = frozenset({"1", "true"})
+FALSE_TEXT = frozenset({"0", "false"})
+
+
+def has_truthy_value(record: Mapping[str, object], field_name: str) -> bool:
+    """Return whether a record field represents true."""
+    return str(record.get(field_name)).casefold() in TRUE_TEXT
+
+
+def has_falsey_value(record: Mapping[str, object], field_name: str) -> bool:
+    """Return whether a record field represents false."""
+    return str(record.get(field_name)).casefold() in FALSE_TEXT
+
+
+def state_from_result(record: Mapping[str, object], compliant_state: str) -> str:
+    """Return a ledger result state, treating malformed values as active."""
+    result = str(record.get("result", "")).upper()
+    return compliant_state if result == compliant_state else ACTIVE
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

@@ -5,12 +5,18 @@ import typing
 from datetime import datetime
 
 from ghost_audit import identity
-from ghost_audit.model import ABSENT, Step
+from ghost_audit.model import ABSENT, BLOCKED, DISABLED, Step
 from ghost_audit.output_format import (
+    BLOCK_RESTORE,
     DELETE_RECORD,
+    DISABLE_DATA_FLOW,
     OPERATION_ORDER,
+    REPORT_ACTIVE_DATA_FLOW,
     REPORT_REMAINING_RECORD,
+    REPORT_RESTORE_RISK,
+    VERIFY_DATA_FLOW_DISABLED,
     VERIFY_RECORD_ABSENT,
+    VERIFY_RESTORE_BLOCKED,
     Operation,
 )
 
@@ -36,10 +42,25 @@ class PlanRule:
     finding: Operation
     remediation: Operation
     verification: Operation
+    absent_is_compliant: bool = False
 
 
 PLAN_RULES = {
     "DELETE": PlanRule(ABSENT, REPORT_REMAINING_RECORD, DELETE_RECORD, VERIFY_RECORD_ABSENT),
+}
+CATEGORY_PLAN_RULES = {
+    "DATA_FLOW": PlanRule(
+        DISABLED,
+        REPORT_ACTIVE_DATA_FLOW,
+        DISABLE_DATA_FLOW,
+        VERIFY_DATA_FLOW_DISABLED,
+    ),
+    "BACKUP_ARCHIVE": PlanRule(
+        BLOCKED,
+        REPORT_RESTORE_RISK,
+        BLOCK_RESTORE,
+        VERIFY_RESTORE_BLOCKED,
+    ),
 }
 
 
@@ -145,7 +166,7 @@ class Auditor:
         citation = max(
             citable,
             key=lambda proof: (
-                (proof.state != rule.end_state) == has_gap,
+                (not _state_satisfies(rule, proof.state)) == has_gap,
                 proof.copy in gap_copies,
                 proof.is_observation,
                 proof.observed_at,
@@ -179,6 +200,9 @@ class Auditor:
             )
             for observation in observations
         ]
+        category_rule = CATEGORY_PLAN_RULES.get(category)
+        if category_rule is not None:
+            return category_rule, proofs
         proofs.extend(
             _Proof(
                 coverage.copy,
@@ -199,7 +223,13 @@ def _gap_copies(rule: PlanRule, proofs: Iterable[_Proof]) -> set[str]:
         proofs, key=lambda proof: (proof.observed_at, proof.is_observation), reverse=True
     ):
         latest_by_copy.setdefault(proof.copy, proof)
-    return {copy for copy, latest in latest_by_copy.items() if latest.state != rule.end_state}
+    return {
+        copy for copy, latest in latest_by_copy.items() if not _state_satisfies(rule, latest.state)
+    }
+
+
+def _state_satisfies(rule: PlanRule, state: str) -> bool:
+    return state == rule.end_state or (state == ABSENT and rule.absent_is_compliant)
 
 
 def _planned_steps(assessments: Iterable[_ResourceAssessment], *, is_complete: bool) -> list[Step]:
