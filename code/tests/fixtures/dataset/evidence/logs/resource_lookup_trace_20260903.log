@@ -1,4 +1,4 @@
-2026-09-03T07:59:00Z level=INFO service=readback_collector event=export_started target_count=4 mode=point_in_time
+2026-09-03T07:59:00Z level=INFO service=readback_collector event=export_started target_count=5 mode=point_in_time
 2026-09-03T07:59:10Z level=DEBUG service=account_service trace_id=rb-075910-001 event=profile_lookup_started resource_id=account_202 lookup_key=m.rios.old@outlook.com
 2026-09-03T07:59:10Z level=INFO service=account_service trace_id=rb-075910-001 event=profile_lookup_completed resource_id=account_202 rows=0 http_status=404
 2026-09-03T07:59:20Z level=DEBUG service=account_service trace_id=rb-075920-002 event=profile_lookup_started resource_id=account_303 lookup_key=diya.k4436@outlook.com
@@ -7,3 +7,4 @@
 2026-09-03T07:59:30Z level=INFO service=account_service trace_id=rb-075930-003 event=profile_lookup_completed resource_id=account_1313 rows=0 http_status=404
 2026-09-03T07:59:40Z level=DEBUG service=account_service trace_id=rb-075940-004 event=profile_lookup_started resource_id=account_1819 lookup_key=amara.okafor@zoho.com
 2026-09-03T07:59:40Z level=INFO service=account_service trace_id=rb-075940-004 event=profile_lookup_completed resource_id=account_1819 rows=0 http_status=404
+2026-09-03T07:59:50Z level=INFO service=search_service trace_id=rb-075950-005 event=index_query_completed resource_id=search_601 index=customer_directory_v3 result=hit correlation_key="ines.carvalho@sapo.pt"
