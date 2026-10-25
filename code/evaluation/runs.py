@@ -121,24 +121,13 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
 
     run_dir = RUNS_DIR / run_id
     run_dir.mkdir(parents=True)
-    shutil.copyfile(output_path, run_dir / OUTPUT_FILENAME)
-    shutil.copyfile(usage_path, run_dir / USAGE_FILENAME)
-    (run_dir / SCORES_FILENAME).write_text(scores_markdown, encoding="utf-8")
-
-    outcome: Outcome = "promoted"
-    if baseline_run_id is None:
-        sys.stdout.write("\nNo baseline: run promoted as the first baseline.\n")
-    else:
-        try:
-            comparison = compare_runs(baseline_run_id, run_id, labels_path)
-        except Exception:
-            shutil.rmtree(run_dir)
-            raise
-        diff_markdown = _render_diff(comparison)
-        (run_dir / DIFF_FILENAME).write_text(diff_markdown, encoding="utf-8")
-        sys.stdout.write(f"\n{diff_markdown}")
-        outcome = _outcome(comparison)
-
+    try:
+        outcome = _save_run(
+            run_id, baseline_run_id, output_path, usage_path, labels_path, scores_markdown
+        )
+    except Exception:
+        shutil.rmtree(run_dir)
+        raise
     _write_run_record(
         run_id,
         {
@@ -155,6 +144,29 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
         promote_run(run_id)
     sys.stdout.write(f"Run {run_id}: {outcome}\n")
     return run_id
+
+
+def _save_run(
+    run_id: str,
+    baseline_run_id: str | None,
+    output_path: Path,
+    usage_path: Path,
+    labels_path: Path,
+    scores_markdown: str,
+) -> Outcome:
+    run_dir = RUNS_DIR / run_id
+    shutil.copyfile(output_path, run_dir / OUTPUT_FILENAME)
+    shutil.copyfile(usage_path, run_dir / USAGE_FILENAME)
+    (run_dir / SCORES_FILENAME).write_text(scores_markdown, encoding="utf-8")
+
+    if baseline_run_id is None:
+        sys.stdout.write("\nNo baseline: run promoted as the first baseline.\n")
+        return "promoted"
+    comparison = compare_runs(baseline_run_id, run_id, labels_path)
+    diff_markdown = _render_diff(comparison)
+    (run_dir / DIFF_FILENAME).write_text(diff_markdown, encoding="utf-8")
+    sys.stdout.write(f"\n{diff_markdown}")
+    return _outcome(comparison)
 
 
 def promote_run(run_id: str) -> None:
@@ -202,6 +214,8 @@ def _output_case_ids(output_path: Path) -> set[str]:
 
 
 def _outcome(comparison: RunComparison) -> Outcome:
+    if not comparison.run_scores:
+        return "not_promoted"
     if comparison.delta > NOISE_FLOOR:
         return "promoted"
     if comparison.delta < -NOISE_FLOOR:
@@ -325,7 +339,7 @@ def _write_run_record(run_id: str, record: RunRecord) -> None:
 
 def _agent_version() -> AgentVersion:
     commit = _git_output("rev-parse", "HEAD")
-    status = _git_output("status", "--porcelain")
+    status = _git_output("status", "--porcelain", "--", str(_package_dir()))
     return {
         "commit": commit.strip() if commit is not None else None,
         "dirty": bool(status.strip()) if status is not None else None,
@@ -347,10 +361,19 @@ def _git_output(*arguments: str) -> str | None:
     return result.stdout if result.returncode == 0 else None
 
 
+def _package_dir() -> Path:
+    return Path(ghost_audit.__file__).parent
+
+
 def _source_sha256() -> str:
-    package_dir = Path(ghost_audit.__file__).parent
+    package_dir = _package_dir()
     digest = hashlib.sha256()
-    for source_path in sorted(package_dir.rglob("*.py")):
+    source_paths = (
+        path
+        for path in package_dir.rglob("*")
+        if path.is_file() and "__pycache__" not in path.relative_to(package_dir).parts
+    )
+    for source_path in sorted(source_paths):
         digest.update(source_path.relative_to(package_dir).as_posix().encode())
         digest.update(source_path.read_bytes())
     return digest.hexdigest()

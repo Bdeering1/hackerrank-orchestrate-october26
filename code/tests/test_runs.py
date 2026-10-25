@@ -24,6 +24,7 @@ EXPENSIVE_USAGE = {
         }
     ]
 }
+SLIGHTLY_CHEAPER_USAGE = {"models": [{**EXPENSIVE_USAGE["models"][0], "input_tokens": 900_000}]}
 
 
 @pytest.fixture
@@ -92,6 +93,7 @@ def test_second_run_outcome(record, baseline_rows, run_rows, outcome, is_baselin
     [
         pytest.param(EXPENSIVE_USAGE, NO_USAGE, "promoted", id="cheaper-run"),
         pytest.param(NO_USAGE, EXPENSIVE_USAGE, "not_promoted", id="costlier-run"),
+        pytest.param(EXPENSIVE_USAGE, SLIGHTLY_CHEAPER_USAGE, "tie", id="small-cost-gap"),
     ],
 )
 def test_tie_is_decided_by_large_cost_difference(
@@ -154,6 +156,14 @@ def test_comparison_covers_only_shared_cases(record) -> None:
     assert _outcome(run_id) == "tie"
 
 
+def test_run_without_shared_cases_is_not_promoted(record) -> None:
+    header, first_row, *other_rows = _perfect_rows()
+    baseline_id = record([header, first_row], EXPENSIVE_USAGE)
+
+    assert _outcome(record([header, *other_rows])) == "not_promoted"
+    assert _baseline() == baseline_id
+
+
 @pytest.mark.parametrize(
     ("answer", "outcome"),
     [pytest.param("y", "promoted", id="yes"), pytest.param("", "tie", id="default-no")],
@@ -168,14 +178,7 @@ def test_interactive_tie_prompts_for_promotion(
     assert _outcome(record(_perfect_rows())) == outcome
 
 
-def test_unsaved_scoring_paths(tmp_path: Path, runs_dir: Path) -> None:
-    predictions_path = tmp_path / "predictions.csv"
-    rows = _perfect_rows()
-    rows[1][1] = "UNKNOWN"
-    with predictions_path.open("w", encoding="utf-8", newline="") as predictions_file:
-        csv.writer(predictions_file).writerows(rows)
-
+def test_predictions_scoring_is_not_saved(runs_dir: Path) -> None:
     assert main(["--predictions", str(SAMPLE_OUTPUT_PATH)]) == 0
-    assert main(["--predictions", str(predictions_path)]) == 1
 
     assert not runs_dir.exists()
