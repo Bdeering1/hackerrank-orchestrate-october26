@@ -131,7 +131,7 @@ def test_cost_tiebreak_compares_cost_per_request(record) -> None:
     assert _outcome(record(rows, DOUBLE_EXPENSIVE_USAGE)) == "tie"
 
 
-def test_run_waits_for_the_baseline_lock(record) -> None:
+def test_run_waits_for_the_runs_lock(record) -> None:
     runs.RUNS_DIR.mkdir(parents=True)
     lock_path = runs.RUNS_DIR / runs.LOCK_FILENAME
     lock_path.touch()

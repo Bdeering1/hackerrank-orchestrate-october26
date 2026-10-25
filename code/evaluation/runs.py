@@ -32,7 +32,7 @@ USAGE_FILENAME = "usage.json"
 SCORES_FILENAME = "scores.md"
 RUN_FILENAME = "run.json"
 DIFF_FILENAME = "diff.md"
-LOCK_FILENAME = ".baseline.lock"
+LOCK_FILENAME = ".runs.lock"
 LOCK_POLL_SECONDS = 0.1
 BASELINE_REFERENCE = "baseline"
 HOLDOUT_REFERENCE = "previous holdout run"
@@ -153,10 +153,10 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
 
     # The lock keeps a concurrent run from moving the baseline between the comparison and the
     # promotion, which would leave a baseline that was never compared against this run.
-    with _baseline_lock():
+    with _runs_lock():
         baseline_run_id = _baseline_run_id()
         run_dir = RUNS_DIR / run_id
-        outcome: Outcome = _saved_in_new_dir(
+        outcome: Outcome = _save_into_new_dir(
             run_dir,
             lambda: _save_run(
                 run_id, baseline_run_id, output_path, usage_path, labels_path, scores_markdown
@@ -194,10 +194,10 @@ def record_holdout_run(
     holdout_dir = RUNS_DIR / HOLDOUT_DIRNAME
 
     # The lock keeps concurrent holdout runs from diffing against the same previous run.
-    with _baseline_lock():
+    with _runs_lock():
         previous_record = _latest_holdout_record(holdout_dir)
         run_dir = holdout_dir / run_id
-        _saved_in_new_dir(
+        _save_into_new_dir(
             run_dir,
             lambda: _save_holdout_run(
                 run_dir, previous_record, output_path, usage_path, labels_path, scores_markdown
@@ -221,7 +221,7 @@ def _new_run_id(now: datetime) -> str:
     return f"{now.strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}"
 
 
-def _saved_in_new_dir[T](run_dir: Path, save: typing.Callable[[], T]) -> T:
+def _save_into_new_dir[T](run_dir: Path, save: typing.Callable[[], T]) -> T:
     """Create run_dir, fill it with save and remove it again if saving fails."""
     run_dir.mkdir(parents=True)
     try:
@@ -315,7 +315,7 @@ def promote_run(run_id: str) -> None:
     run_dir = RUNS_DIR / run_id
     if not (run_dir / RUN_FILENAME).is_file():
         raise PromotionRefusedError(f"unknown run: {run_id}")
-    with _baseline_lock():
+    with _runs_lock():
         record = _read_run_record(run_dir)
         promotion = record["promotion"]
         if promotion["outcome"] != "tie":
@@ -330,7 +330,7 @@ def promote_run(run_id: str) -> None:
 
 
 @contextlib.contextmanager
-def _baseline_lock() -> typing.Generator[None]:
+def _runs_lock() -> typing.Generator[None]:
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     lock_path = RUNS_DIR / LOCK_FILENAME
     is_waiting_reported = False
