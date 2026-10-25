@@ -9,7 +9,13 @@ import pytest
 from evaluation import main as evaluation_main
 from evaluation import runs
 from evaluation.main import main
-from evaluation.runs import PromotionRefusedError, compare_runs, promote_run, record_run
+from evaluation.runs import (
+    FullSetPaths,
+    PromotionRefusedError,
+    compare_runs,
+    promote_run,
+    record_run,
+)
 from evaluation.validate import csv_rows
 
 SAMPLE_OUTPUT_PATH = Path(__file__).resolve().parents[2] / "dataset" / "sample_output.csv"
@@ -27,7 +33,6 @@ EXPENSIVE_USAGE = {
     ]
 }
 SLIGHTLY_CHEAPER_USAGE = {"models": [{**EXPENSIVE_USAGE["models"][0], "input_tokens": 900_000}]}
-DOUBLE_EXPENSIVE_USAGE = {"models": [{**EXPENSIVE_USAGE["models"][0], "input_tokens": 2_000_000}]}
 
 
 @pytest.fixture
@@ -58,7 +63,7 @@ def record(tmp_path: Path):
             usage_path,
             SAMPLE_OUTPUT_PATH,
             "scores",
-            full_set_paths=(full_output_path, full_usage_path),
+            full_set_paths=FullSetPaths(full_output_path, full_usage_path),
         )
 
     return record_rows
@@ -137,36 +142,12 @@ def test_second_run_outcome(record, baseline_rows, run_rows, outcome, is_baselin
         pytest.param(EXPENSIVE_USAGE, SLIGHTLY_CHEAPER_USAGE, "tie", id="small-cost-gap"),
     ],
 )
-def test_tie_is_decided_by_large_cost_difference(
+def test_tie_is_decided_by_large_full_set_cost_difference(
     record, baseline_usage, run_usage, outcome
 ) -> None:
-    record(_perfect_rows(), baseline_usage, _perfect_rows())
+    record(_perfect_rows(), run_usage, _perfect_rows(), baseline_usage)
 
-    assert _outcome(record(_perfect_rows(), run_usage, _perfect_rows())) == outcome
-
-
-def test_cost_tiebreak_compares_cost_per_request(record) -> None:
-    rows = _perfect_rows()
-    half_case_count = (len(rows) - 1) // 2
-    half_rows = rows[: 1 + half_case_count]
-    record(
-        rows,
-        EXPENSIVE_USAGE,
-        full_rows=half_rows,
-        full_usage=EXPENSIVE_USAGE,
-    )
-
-    assert (
-        _outcome(
-            record(
-                rows,
-                NO_USAGE,
-                full_rows=rows,
-                full_usage=DOUBLE_EXPENSIVE_USAGE,
-            )
-        )
-        == "tie"
-    )
+    assert _outcome(record(_perfect_rows(), baseline_usage, _perfect_rows(), run_usage)) == outcome
 
 
 def test_cheaper_run_with_full_set_changes_ties(record) -> None:

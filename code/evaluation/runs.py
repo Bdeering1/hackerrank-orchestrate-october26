@@ -16,10 +16,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import ghost_audit
-from evaluation.score import METRICS, case_scores, pooled_composite, pooled_ratio
+from evaluation.score import (
+    METRICS,
+    Ratio,
+    case_scores,
+    pooled_composite,
+    pooled_ratio,
+    rows_by_case,
+)
 from evaluation.usage import usage_summary
 from evaluation.validate import VALID_STATUSES, data_rows
-from ghost_audit.output_format import case_number
 
 if typing.TYPE_CHECKING:
     from evaluation.score import CaseScore
@@ -38,7 +44,7 @@ LOCK_FILENAME = ".baseline.lock"
 LOCK_POLL_SECONDS = 0.1
 
 NOISE_FLOOR = 0.0
-# Issue #31 measures unchanged-agent full-set run-to-run changed cases.
+# Most changed full-set cases an unchanged agent shows between runs.
 FULL_SET_NOISE_CASES = 0
 TIE_COST_FRACTION = 0.2
 BOOTSTRAP_RESAMPLES = 10_000
@@ -46,10 +52,13 @@ BOOTSTRAP_SEED = 0
 INTERVAL_PERCENTILES = (0.025, 0.975)
 YES_ANSWERS = ("y", "yes")
 STATUSES = tuple(sorted(VALID_STATUSES))
-STEP_METRIC = next(metric for metric in METRICS if metric.label == "Step")
 
 Outcome = typing.Literal["promoted", "not_promoted", "tie"]
-FullSetPaths = tuple[Path, Path]
+
+
+class FullSetPaths(typing.NamedTuple):
+    output_path: Path
+    usage_path: Path
 
 
 class AgentVersion(typing.TypedDict):
@@ -230,9 +239,8 @@ def _save_run(
     shutil.copyfile(output_path, run_dir / OUTPUT_FILENAME)
     shutil.copyfile(usage_path, run_dir / USAGE_FILENAME)
     if full_set_paths is not None:
-        full_output_path, full_usage_path = full_set_paths
-        shutil.copyfile(full_output_path, run_dir / FULL_OUTPUT_FILENAME)
-        shutil.copyfile(full_usage_path, run_dir / FULL_USAGE_FILENAME)
+        shutil.copyfile(full_set_paths.output_path, run_dir / FULL_OUTPUT_FILENAME)
+        shutil.copyfile(full_set_paths.usage_path, run_dir / FULL_USAGE_FILENAME)
     (run_dir / SCORES_FILENAME).write_text(scores_markdown, encoding="utf-8")
 
     if baseline_run_id is None:
@@ -340,8 +348,8 @@ def _compare_full_sets(
     baseline_output_path: Path,
     run_output_path: Path,
 ) -> FullSetComparison:
-    baseline_rows = _rows_by_case(baseline_output_path)
-    run_rows = _rows_by_case(run_output_path)
+    baseline_rows = rows_by_case(baseline_output_path)
+    run_rows = rows_by_case(run_output_path)
     full_scores = case_scores(run_output_path, baseline_output_path)
     status_transitions = {
         baseline_status: dict.fromkeys(STATUSES, 0) for baseline_status in STATUSES
@@ -372,27 +380,11 @@ def _compare_full_sets(
         len(baseline_rows),
         status_transitions,
         changed_case_count,
-        pooled_ratio(STEP_METRIC, full_scores).value,
-        sorted(
-            disagreements,
-            key=lambda disagreement: (
-                -disagreement.unmatched_step_count,
-                case_number(disagreement.case_id),
-            ),
-        )[:10],
+        sum((score.step_f1 for score in full_scores), Ratio(0, 0)).value,
+        sorted(disagreements, key=lambda disagreement: -disagreement.unmatched_step_count)[:10],
         _cost_per_request_usd(baseline_run_id, len(baseline_rows), FULL_USAGE_FILENAME),
         _cost_per_request_usd(run_id, len(run_rows), FULL_USAGE_FILENAME),
     )
-
-
-def _rows_by_case(output_path: Path) -> dict[str, tuple[str, list[object]]]:
-    rows_by_case: dict[str, tuple[str, list[object]]] = {}
-    for case_id, deletion_status, steps_json in data_rows(output_path):
-        parsed_steps = typing.cast("object", json.loads(steps_json))
-        if not isinstance(parsed_steps, list):
-            raise TypeError("steps_json is not a JSON array")
-        rows_by_case[case_id] = deletion_status, typing.cast("list[object]", parsed_steps)
-    return rows_by_case
 
 
 def _outcome(comparison: RunComparison) -> Outcome:

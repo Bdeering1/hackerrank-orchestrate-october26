@@ -70,7 +70,7 @@ def main(argv: list[str]) -> int:
         return _score_predictions(
             output_path,
             usage_path,
-            full_set_paths=(full_output_path, full_usage_path),
+            full_set_paths=FullSetPaths(full_output_path, full_usage_path),
         )
 
 
