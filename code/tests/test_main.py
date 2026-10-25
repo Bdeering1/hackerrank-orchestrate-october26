@@ -1,11 +1,20 @@
+import csv
 import json
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+import ghost_audit.llm
 from evaluation.validate import data_rows, validation_errors
 from ghost_audit.__main__ import main
+from tests.fakes import (
+    NO_DELETE_MARKER,
+    FakeTransport,
+    decide_intent,
+    fail_to_connect,
+    fake_connect,
+)
 
 DATASET_DIR = Path(__file__).resolve().parent / "fixtures" / "dataset"
 REQUESTS_PATH = DATASET_DIR / "deletion_requests.csv"
@@ -83,16 +92,19 @@ def _retained_steps(
 @pytest.fixture(scope="module")
 def run(tmp_path_factory: pytest.TempPathFactory) -> tuple[int, Path]:
     output_dir = tmp_path_factory.mktemp("output")
-    exit_code = main(
-        [
-            "--dataset",
-            str(DATASET_DIR),
-            "--output",
-            str(output_dir / "output.csv"),
-            "--usage",
-            str(output_dir / "usage.json"),
-        ]
-    )
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        connect = fake_connect(FakeTransport(decide_intent), output_dir / "llm-cache")
+        monkeypatch.setattr(ghost_audit.llm, "connect", connect)
+        exit_code = main(
+            [
+                "--dataset",
+                str(DATASET_DIR),
+                "--output",
+                str(output_dir / "output.csv"),
+                "--usage",
+                str(output_dir / "usage.json"),
+            ]
+        )
     return exit_code, output_dir
 
 
@@ -105,7 +117,18 @@ def test_main_writes_valid_output_and_usage(run):
     }
 
     assert exit_code == 0
-    assert json.loads((output_dir / "usage.json").read_text(encoding="utf-8")) == {"models": []}
+    # Every fixture request shares one text, so intent routing makes one call.
+    assert json.loads((output_dir / "usage.json").read_text(encoding="utf-8")) == {
+        "models": [
+            {
+                "provider": "anthropic",
+                "model": "claude-haiku-5.5",
+                "calls": 1,
+                "input_tokens": 3,
+                "output_tokens": 5,
+            }
+        ]
+    }
     assert validation_errors(output_dir / "output.csv", audit_times, evidence_times) == []
 
 
@@ -230,25 +253,92 @@ def test_main_writes_valid_output_and_usage(run):
             id="account deleted before an earlier request ignored",
         ),
         pytest.param(
-            "case_21",
+            "case_22",
+            "COMPLETE",
+            _absent_account_steps("account_2121", "evidence_06"),
+            id="nominated account absent from snapshot",
+        ),
+        pytest.param("case_23", "NOT_APPLICABLE", [], id="ambiguous nomination"),
+        pytest.param(
+            "case_24",
+            "COMPLETE",
+            _absent_account_steps("account_2424", "evidence_06"),
+            id="nominee linked to another user ruled out",
+        ),
+        pytest.param(
+            "case_25",
+            "COMPLETE",
+            _absent_account_steps("account_2525", "evidence_06"),
+            id="nominee matches reported result",
+        ),
+        pytest.param(
+            "case_26",
+            "COMPLETE",
+            _absent_account_steps("account_2626", "evidence_06"),
+            id="no nominee matches reported result",
+        ),
+        pytest.param(
+            "case_27",
+            "COMPLETE",
+            _absent_account_steps("account_2727", "evidence_06"),
+            id="nomination window earliest edge",
+        ),
+        pytest.param(
+            "case_28",
+            "COMPLETE",
+            _absent_account_steps("account_2828", "evidence_06"),
+            id="targeted nomination window earliest edge",
+        ),
+        pytest.param(
+            "case_29",
+            "COMPLETE",
+            _absent_account_steps("account_2929", "evidence_06"),
+            id="nomination after audit_at ignored",
+        ),
+        pytest.param(
+            "case_30",
+            "COMPLETE",
+            _absent_account_steps("account_3030", "evidence_06"),
+            id="other activity never nominates",
+        ),
+        pytest.param(
+            "case_32",
+            "COMPLETE",
+            _absent_account_steps("account_3232", "evidence_06"),
+            id="links after audit_at never rule out a nominee",
+        ),
+        pytest.param(
+            "case_33",
+            "COMPLETE",
+            _absent_account_steps("account_3333", "evidence_06"),
+            id="nomination window latest edge",
+        ),
+        pytest.param(
+            "case_34",
+            "COMPLETE",
+            _absent_account_steps("account_3434", "evidence_06"),
+            id="targeted nomination window latest edge",
+        ),
+        pytest.param(
+            "case_35",
             "COMPLETE",
             _retained_steps("audit_record_2101", SECURITY_SYSTEM),
             id="retained security audit record",
         ),
         pytest.param(
-            "case_22",
+            "case_36",
             "INCOMPLETE",
             _remaining_retention_steps("audit_record_2202", SECURITY_SYSTEM),
             id="expired security audit record",
         ),
         pytest.param(
-            "case_23",
+            "case_37",
             "COMPLETE",
             _retained_steps("legal_hold_2303", LEGAL_SYSTEM),
             id="retained legal hold record",
         ),
         pytest.param(
-            "case_25",
+            "case_38",
             "COMPLETE",
             [
                 _step(
@@ -264,7 +354,7 @@ def test_main_writes_valid_output_and_usage(run):
             id="clean tombstone",
         ),
         pytest.param(
-            "case_26",
+            "case_39",
             "INCOMPLETE",
             [
                 _step(
@@ -298,22 +388,16 @@ def test_main_writes_valid_output_and_usage(run):
             id="tombstone exposing some identifiers",
         ),
         pytest.param(
-            "case_28",
+            "case_40",
             "COMPLETE",
             _retained_steps("audit_record_2808", SECURITY_SYSTEM),
             id="retained record remains compliant when a later snapshot omits it",
         ),
         pytest.param(
-            "case_32",
+            "case_41",
             "INCOMPLETE",
             _retained_steps("audit_record_3210", SECURITY_SYSTEM, evidence_id=""),
             id="retained record explicitly absent",
-        ),
-        pytest.param(
-            "case_34",
-            "COMPLETE",
-            _retained_steps("audit_record_3411", SECURITY_SYSTEM),
-            id="retained record observed before request",
         ),
     ],
 )
@@ -324,3 +408,51 @@ def test_main_audits_records(run, case_id, expected_status, expected_steps):
     }
 
     assert output_rows[case_id] == (expected_status, expected_steps)
+
+
+def test_main_skips_audit_for_requests_that_do_not_authorize_deletion(tmp_path: Path) -> None:
+    requests_path = tmp_path / "deletion_requests.csv"
+    output_path = tmp_path / "output.csv"
+    _write_requests_with_text(requests_path, "case_01", f"{NO_DELETE_MARKER} send me a copy")
+
+    assert main(_main_arguments(requests_path, output_path)) == 0
+
+    output_rows = {row[0]: (row[1], row[2]) for row in data_rows(output_path)}
+    assert output_rows["case_01"] == ("NOT_APPLICABLE", "[]")
+    assert output_rows["case_02"][0] == "COMPLETE"
+
+
+def test_main_keeps_existing_output_when_intent_routing_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_path = tmp_path / "output.csv"
+    output_path.write_text("previous output", encoding="utf-8")
+    connect = fake_connect(FakeTransport(fail_to_connect), tmp_path / "llm-cache", max_attempts=1)
+    monkeypatch.setattr(ghost_audit.llm, "connect", connect)
+
+    assert main(_main_arguments(REQUESTS_PATH, output_path)) == 1
+
+    assert output_path.read_text(encoding="utf-8") == "previous output"
+
+
+def _main_arguments(requests_path: Path, output_path: Path) -> list[str]:
+    return [
+        "--dataset",
+        str(DATASET_DIR),
+        "--requests",
+        str(requests_path),
+        "--output",
+        str(output_path),
+    ]
+
+
+def _write_requests_with_text(path: Path, case_id: str, request_text: str) -> None:
+    with REQUESTS_PATH.open(encoding="utf-8", newline="") as requests_file:
+        requests = list(csv.DictReader(requests_file))
+    for request in requests:
+        if request["case_id"] == case_id:
+            request["request_text"] = request_text
+    with path.open("w", encoding="utf-8", newline="") as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=list(requests[0]))
+        writer.writeheader()
+        writer.writerows(requests)

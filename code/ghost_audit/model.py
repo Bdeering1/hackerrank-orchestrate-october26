@@ -46,9 +46,15 @@ class Claim:
     activity_id: str
     event_time: datetime
     event_type: str
+    source_system: str
     target_system: str
     resource_id: str
+    reported_result: str
     details: str
+
+    @property
+    def resource_key(self) -> tuple[str, str]:
+        return self.target_system, self.resource_id
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
