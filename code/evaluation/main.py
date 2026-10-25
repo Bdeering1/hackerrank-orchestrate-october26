@@ -6,7 +6,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from evaluation.runs import PromotionRefusedError, promote_run, record_run
+from evaluation.runs import FullSetPaths, PromotionRefusedError, promote_run, record_run
 from evaluation.score import case_scores, render_markdown
 from evaluation.usage import format_usage_summary, usage_summary
 from evaluation.validate import csv_rows, validation_errors
@@ -26,6 +26,7 @@ def main(argv: list[str]) -> int:
     """Run, score or promote sample predictions, or validate a full-set output."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--predictions", type=Path)
+    parser.add_argument("--full-set", action="store_true")
     subparsers = parser.add_subparsers(dest="command")
     promote_parser = subparsers.add_parser("promote")
     promote_parser.add_argument("run_id")
@@ -34,6 +35,9 @@ def main(argv: list[str]) -> int:
     arguments = _Arguments()
     parser.parse_args(argv, arguments)
 
+    if arguments.full_set and (arguments.predictions is not None or arguments.command is not None):
+        parser.error("--full-set is only available for the default run")
+
     if arguments.command == "promote":
         return _promote(arguments.run_id)
 
@@ -41,39 +45,68 @@ def main(argv: list[str]) -> int:
         return _validate_full_set(arguments.output_path or DEFAULT_OUTPUT_PATH)
 
     if arguments.predictions is not None:
+        if _report_validation_errors(arguments.predictions, _times_from(REQUESTS_PATH, "audit_at")):
+            return 1
         return _score_predictions(arguments.predictions)
 
     with tempfile.TemporaryDirectory() as temporary_directory:
         output_path = Path(temporary_directory) / "output.csv"
         usage_path = Path(temporary_directory) / "usage.json"
-        agent_exit_code = agent_main(
-            [
-                "--requests",
-                str(REQUESTS_PATH),
-                "--output",
-                str(output_path),
-                "--usage",
-                str(usage_path),
-            ]
-        )
+        agent_exit_code = _run_agent(REQUESTS_PATH, output_path, usage_path)
         if agent_exit_code != 0:
             return agent_exit_code
-        return _score_predictions(output_path, usage_path)
+        if _report_validation_errors(output_path, _times_from(REQUESTS_PATH, "audit_at")):
+            return 1
+        if not arguments.full_set:
+            return _score_predictions(output_path, usage_path)
+
+        full_output_path = Path(temporary_directory) / "full_output.csv"
+        full_usage_path = Path(temporary_directory) / "full_usage.json"
+        agent_exit_code = _run_agent(FULL_REQUESTS_PATH, full_output_path, full_usage_path)
+        if agent_exit_code != 0:
+            return agent_exit_code
+        if _report_validation_errors(full_output_path, _times_from(FULL_REQUESTS_PATH, "audit_at")):
+            return 1
+        return _score_predictions(
+            output_path,
+            usage_path,
+            full_set_paths=(full_output_path, full_usage_path),
+        )
 
 
-def _score_predictions(predictions_path: Path, usage_path: Path | None = None) -> int:
-    """Validate predictions and render weighted sample scores."""
+def _run_agent(requests_path: Path, output_path: Path, usage_path: Path) -> int:
+    return agent_main(
+        [
+            "--requests",
+            str(requests_path),
+            "--output",
+            str(output_path),
+            "--usage",
+            str(usage_path),
+        ]
+    )
+
+
+def _score_predictions(
+    predictions_path: Path,
+    usage_path: Path | None = None,
+    full_set_paths: FullSetPaths | None = None,
+) -> int:
+    """Render weighted sample scores and save a run when usage is available."""
     audit_times = _times_from(REQUESTS_PATH, "audit_at")
-    if _report_validation_errors(predictions_path, audit_times):
-        return 1
-
     scores_markdown = render_markdown(case_scores(predictions_path, LABELS_PATH))
     sys.stdout.write(scores_markdown)
     if usage_path is None:
         return 0
     summary = usage_summary(usage_path, len(audit_times))
     sys.stdout.write(f"{format_usage_summary(summary)}\n")
-    record_run(predictions_path, usage_path, LABELS_PATH, scores_markdown)
+    record_run(
+        predictions_path,
+        usage_path,
+        LABELS_PATH,
+        scores_markdown,
+        full_set_paths,
+    )
     return 0
 
 
@@ -124,6 +157,7 @@ def _times_from(path: Path, time_column: str) -> dict[str, datetime]:
 
 class _Arguments(argparse.Namespace):
     predictions: Path | None
+    full_set: bool
     command: str | None
     run_id: str
     output_path: Path | None

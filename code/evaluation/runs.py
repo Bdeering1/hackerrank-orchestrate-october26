@@ -18,7 +18,8 @@ from pathlib import Path
 import ghost_audit
 from evaluation.score import METRICS, case_scores, pooled_composite, pooled_ratio
 from evaluation.usage import usage_summary
-from evaluation.validate import data_rows
+from evaluation.validate import VALID_STATUSES, data_rows
+from ghost_audit.output_format import case_number
 
 if typing.TYPE_CHECKING:
     from evaluation.score import CaseScore
@@ -28,6 +29,8 @@ SCORE_PATH = Path(__file__).with_name("score.py")
 BASELINE_FILENAME = "baseline.txt"
 OUTPUT_FILENAME = "output.csv"
 USAGE_FILENAME = "usage.json"
+FULL_OUTPUT_FILENAME = "full_output.csv"
+FULL_USAGE_FILENAME = "full_usage.json"
 SCORES_FILENAME = "scores.md"
 RUN_FILENAME = "run.json"
 DIFF_FILENAME = "diff.md"
@@ -35,13 +38,18 @@ LOCK_FILENAME = ".baseline.lock"
 LOCK_POLL_SECONDS = 0.1
 
 NOISE_FLOOR = 0.0
+# Issue #31 measures unchanged-agent full-set run-to-run changed cases.
+FULL_SET_NOISE_CASES = 0
 TIE_COST_FRACTION = 0.2
 BOOTSTRAP_RESAMPLES = 10_000
 BOOTSTRAP_SEED = 0
 INTERVAL_PERCENTILES = (0.025, 0.975)
 YES_ANSWERS = ("y", "yes")
+STATUSES = tuple(sorted(VALID_STATUSES))
+STEP_METRIC = next(metric for metric in METRICS if metric.label == "Step")
 
 Outcome = typing.Literal["promoted", "not_promoted", "tie"]
+FullSetPaths = tuple[Path, Path]
 
 
 class AgentVersion(typing.TypedDict):
@@ -87,6 +95,29 @@ class CaseChange:
 
 
 @dataclass(frozen=True)
+class FullSetCaseDisagreement:
+    """A full-set case with unmatched steps between the baseline and run."""
+
+    case_id: str
+    baseline_status: str
+    run_status: str | None
+    unmatched_step_count: int
+
+
+@dataclass(frozen=True)
+class FullSetComparison:
+    """Agreement, transition and cost details for two full-set outputs."""
+
+    case_count: int
+    status_transitions: dict[str, dict[str, int]]
+    changed_case_count: int
+    pooled_step_f1: float
+    top_step_disagreements: list[FullSetCaseDisagreement]
+    baseline_cost_per_request_usd: float
+    run_cost_per_request_usd: float
+
+
+@dataclass(frozen=True)
 class RunComparison:
     """Scores and costs of a run and its baseline over their shared cases."""
 
@@ -97,6 +128,9 @@ class RunComparison:
     baseline_cost_per_request_usd: float
     run_cost_per_request_usd: float
     interval: tuple[float, float]
+    full_set: FullSetComparison | None
+    has_baseline_full_set: bool
+    has_run_full_set: bool
 
     @property
     def delta(self) -> float:
@@ -129,7 +163,13 @@ class RunComparison:
         return pooled_composite(changed_scores) - pooled_composite(self.baseline_scores)
 
 
-def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_markdown: str) -> str:
+def record_run(
+    output_path: Path,
+    usage_path: Path,
+    labels_path: Path,
+    scores_markdown: str,
+    full_set_paths: FullSetPaths | None = None,
+) -> str:
     """Save a validated run, diff it against the baseline and promote it if it earns it.
 
     Writes the diff and promotion outcome to stdout and returns the run ID.
@@ -145,8 +185,14 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
         run_dir = RUNS_DIR / run_id
         run_dir.mkdir()
         try:
-            outcome = _save_run(
-                run_id, baseline_run_id, output_path, usage_path, labels_path, scores_markdown
+            outcome, comparison = _save_run(
+                run_id,
+                baseline_run_id,
+                output_path,
+                usage_path,
+                labels_path,
+                scores_markdown,
+                full_set_paths=full_set_paths,
             )
         except Exception:
             shutil.rmtree(run_dir)
@@ -163,7 +209,7 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
         )
         if outcome == "promoted":
             _write_baseline(run_id)
-    if outcome == "tie" and _is_interactive() and _confirms_promotion():
+    if outcome == "tie" and _is_interactive() and _confirms_promotion(comparison):
         outcome = "promoted"
         promote_run(run_id)
     sys.stdout.write(f"Run {run_id}: {outcome}\n")
@@ -177,15 +223,21 @@ def _save_run(
     usage_path: Path,
     labels_path: Path,
     scores_markdown: str,
-) -> Outcome:
+    *,
+    full_set_paths: FullSetPaths | None,
+) -> tuple[Outcome, RunComparison | None]:
     run_dir = RUNS_DIR / run_id
     shutil.copyfile(output_path, run_dir / OUTPUT_FILENAME)
     shutil.copyfile(usage_path, run_dir / USAGE_FILENAME)
+    if full_set_paths is not None:
+        full_output_path, full_usage_path = full_set_paths
+        shutil.copyfile(full_output_path, run_dir / FULL_OUTPUT_FILENAME)
+        shutil.copyfile(full_usage_path, run_dir / FULL_USAGE_FILENAME)
     (run_dir / SCORES_FILENAME).write_text(scores_markdown, encoding="utf-8")
 
     if baseline_run_id is None:
         sys.stdout.write("\nNo baseline: run promoted as the first baseline.\n")
-        return "promoted"
+        return "promoted", None
     comparison = compare_runs(baseline_run_id, run_id, labels_path)
     diff_markdown = _render_diff(comparison)
     if _read_run_record(baseline_run_id)["scoring_sha256"] != _scoring_sha256(labels_path):
@@ -195,7 +247,7 @@ def _save_run(
         )
     (run_dir / DIFF_FILENAME).write_text(diff_markdown, encoding="utf-8")
     sys.stdout.write(f"\n{diff_markdown}")
-    return _outcome(comparison)
+    return _outcome(comparison), comparison
 
 
 def promote_run(run_id: str) -> None:
@@ -251,6 +303,10 @@ def compare_runs(baseline_run_id: str, run_id: str, labels_path: Path) -> RunCom
     run_scores = case_scores(run_output_path, labels_path)
     baseline_scores = [score for score in baseline_scores if score.case_id in shared_case_ids]
     run_scores = [score for score in run_scores if score.case_id in shared_case_ids]
+    baseline_full_output_path = RUNS_DIR / baseline_run_id / FULL_OUTPUT_FILENAME
+    run_full_output_path = RUNS_DIR / run_id / FULL_OUTPUT_FILENAME
+    has_baseline_full_set = baseline_full_output_path.is_file()
+    has_run_full_set = run_full_output_path.is_file()
     return RunComparison(
         baseline_run_id,
         run_id,
@@ -259,11 +315,83 @@ def compare_runs(baseline_run_id: str, run_id: str, labels_path: Path) -> RunCom
         _cost_per_request_usd(baseline_run_id, len(baseline_case_ids)),
         _cost_per_request_usd(run_id, len(run_case_ids)),
         _bootstrap_interval(baseline_scores, run_scores),
+        (
+            _compare_full_sets(
+                baseline_run_id,
+                run_id,
+                baseline_full_output_path,
+                run_full_output_path,
+            )
+            if has_baseline_full_set and has_run_full_set
+            else None
+        ),
+        has_baseline_full_set,
+        has_run_full_set,
     )
 
 
 def _output_case_ids(output_path: Path) -> set[str]:
     return {row[0] for row in data_rows(output_path)}
+
+
+def _compare_full_sets(
+    baseline_run_id: str,
+    run_id: str,
+    baseline_output_path: Path,
+    run_output_path: Path,
+) -> FullSetComparison:
+    baseline_rows = _rows_by_case(baseline_output_path)
+    run_rows = _rows_by_case(run_output_path)
+    full_scores = case_scores(run_output_path, baseline_output_path)
+    status_transitions = {
+        baseline_status: dict.fromkeys(STATUSES, 0) for baseline_status in STATUSES
+    }
+    changed_case_count = 0
+    for case_id, (baseline_status, baseline_steps) in baseline_rows.items():
+        run_row = run_rows.get(case_id)
+        if run_row is None:
+            changed_case_count += 1
+            continue
+        run_status, run_steps = run_row
+        status_transitions[baseline_status][run_status] += 1
+        if baseline_status != run_status or baseline_steps != run_steps:
+            changed_case_count += 1
+
+    disagreements = [
+        FullSetCaseDisagreement(
+            score.case_id,
+            score.expected_status,
+            score.predicted_status,
+            score.step_f1.denominator - score.step_f1.numerator,
+        )
+        for score in full_scores
+        if score.step_f1.denominator != score.step_f1.numerator
+    ]
+    return FullSetComparison(
+        len(baseline_rows),
+        status_transitions,
+        changed_case_count,
+        pooled_ratio(STEP_METRIC, full_scores).value,
+        sorted(
+            disagreements,
+            key=lambda disagreement: (
+                -disagreement.unmatched_step_count,
+                case_number(disagreement.case_id),
+            ),
+        )[:10],
+        _cost_per_request_usd(baseline_run_id, len(baseline_rows), FULL_USAGE_FILENAME),
+        _cost_per_request_usd(run_id, len(run_rows), FULL_USAGE_FILENAME),
+    )
+
+
+def _rows_by_case(output_path: Path) -> dict[str, tuple[str, list[object]]]:
+    rows_by_case: dict[str, tuple[str, list[object]]] = {}
+    for case_id, deletion_status, steps_json in data_rows(output_path):
+        parsed_steps = typing.cast("object", json.loads(steps_json))
+        if not isinstance(parsed_steps, list):
+            raise TypeError("steps_json is not a JSON array")
+        rows_by_case[case_id] = deletion_status, typing.cast("list[object]", parsed_steps)
+    return rows_by_case
 
 
 def _outcome(comparison: RunComparison) -> Outcome:
@@ -277,20 +405,29 @@ def _outcome(comparison: RunComparison) -> Outcome:
 
 
 def _cheaper_run_outcome(comparison: RunComparison) -> Outcome | None:
-    baseline_cost = comparison.baseline_cost_per_request_usd
-    run_cost = comparison.run_cost_per_request_usd
+    full_set = comparison.full_set
+    if full_set is None or full_set.changed_case_count > FULL_SET_NOISE_CASES:
+        return None
+    baseline_cost = full_set.baseline_cost_per_request_usd
+    run_cost = full_set.run_cost_per_request_usd
     larger_cost = max(baseline_cost, run_cost)
     if larger_cost <= 0 or abs(baseline_cost - run_cost) < TIE_COST_FRACTION * larger_cost:
         return None
-    return "promoted" if run_cost < baseline_cost else "not_promoted"
+    if run_cost < baseline_cost and comparison.delta >= 0:
+        return "promoted"
+    if baseline_cost < run_cost and comparison.delta <= 0:
+        return "not_promoted"
+    return None
 
 
 def _is_interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-def _confirms_promotion() -> bool:
+def _confirms_promotion(comparison: RunComparison | None) -> bool:
     try:
+        if comparison is not None and comparison.full_set is not None:
+            sys.stdout.write(_full_set_summary(comparison.full_set) + "\n")
         return input("Promote? [y/N] ").strip().lower() in YES_ANSWERS
     except EOFError:
         return False
@@ -313,8 +450,10 @@ def _bootstrap_interval(
     return deltas[lower], deltas[upper]
 
 
-def _cost_per_request_usd(run_id: str, request_count: int) -> float:
-    summary = usage_summary(RUNS_DIR / run_id / USAGE_FILENAME, request_count)
+def _cost_per_request_usd(
+    run_id: str, request_count: int, usage_filename: str = USAGE_FILENAME
+) -> float:
+    summary = usage_summary(RUNS_DIR / run_id / usage_filename, request_count)
     return summary.cost_per_request_usd(summary.overall)
 
 
@@ -348,6 +487,7 @@ def _render_diff(comparison: RunComparison) -> str:
         )
     lines.extend(_render_changes("Fixed", comparison.fixed))
     lines.extend(_render_changes("Regressed", comparison.regressed))
+    lines.extend(_render_full_set(comparison))
     return "\n".join(lines) + "\n"
 
 
@@ -370,6 +510,77 @@ def _render_changes(title: str, changes: list[CaseChange]) -> list[str]:
         for change in changes
     )
     return lines
+
+
+def _render_full_set(comparison: RunComparison) -> list[str]:
+    full_set = comparison.full_set
+    if full_set is None:
+        if comparison.has_baseline_full_set == comparison.has_run_full_set:
+            return []
+        missing_side = "run" if comparison.has_baseline_full_set else "baseline"
+        return ["", f"Full set: {missing_side} lacks full-set output."]
+
+    lines = [
+        "",
+        "### Full set",
+        "",
+        _full_set_summary(full_set),
+        "",
+        "Status transitions (baseline rows, run columns):",
+    ]
+    lines.extend(
+        [
+            "| Baseline status | " + " | ".join(STATUSES) + " |",
+            "| --- | " + " | ".join("---:" for _ in STATUSES) + " |",
+        ]
+    )
+    lines.extend(
+        "| "
+        + baseline_status
+        + " | "
+        + " | ".join(
+            str(full_set.status_transitions[baseline_status][run_status]) for run_status in STATUSES
+        )
+        + " |"
+        for baseline_status in STATUSES
+    )
+    lines.extend(
+        [
+            "",
+            f"Changed cases: {full_set.changed_case_count}/{full_set.case_count}",
+            f"Pooled step F1: {full_set.pooled_step_f1:.1%}",
+            (
+                f"Cost per request: ${full_set.baseline_cost_per_request_usd:.6f} -> "
+                f"${full_set.run_cost_per_request_usd:.6f}"
+            ),
+            "",
+            f"#### Top step disagreements ({len(full_set.top_step_disagreements)})",
+        ]
+    )
+    if not full_set.top_step_disagreements:
+        return lines
+    lines.extend(
+        [
+            "",
+            "| Case ID | Unmatched steps | Baseline status | Run status |",
+            "| --- | ---: | --- | --- |",
+        ]
+    )
+    lines.extend(
+        f"| {disagreement.case_id} | {disagreement.unmatched_step_count} | "
+        f"{disagreement.baseline_status} | {disagreement.run_status or ''} |"
+        for disagreement in full_set.top_step_disagreements
+    )
+    return lines
+
+
+def _full_set_summary(full_set: FullSetComparison) -> str:
+    return (
+        f"Full set: {full_set.changed_case_count}/{full_set.case_count} changed, pooled step F1 "
+        f"{full_set.pooled_step_f1:.1%}, cost per request "
+        f"${full_set.baseline_cost_per_request_usd:.6f} -> "
+        f"${full_set.run_cost_per_request_usd:.6f}"
+    )
 
 
 def _baseline_run_id() -> str | None:
