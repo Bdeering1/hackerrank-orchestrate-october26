@@ -4,11 +4,12 @@ import csv
 import json
 import typing
 
+from ghost_audit.__main__ import HEADER, case_number
+
 if typing.TYPE_CHECKING:
     from collections.abc import Collection
     from pathlib import Path
 
-HEADER = ("case_id", "deletion_status", "steps_json")
 VALID_STATUSES = frozenset({"COMPLETE", "INCOMPLETE", "NOT_APPLICABLE"})
 
 
@@ -42,11 +43,11 @@ def validation_errors(predictions_path: Path, case_ids: Collection[str]) -> list
             errors.append(_row_error(line_number, case_id, "unexpected case_id"))
 
         try:
-            case_number = _case_number(case_id)
+            number = case_number(case_id)
         except ValueError:
             errors.append(_row_error(line_number, case_id, "malformed case_id"))
         else:
-            case_positions.append((case_number, line_number, case_id))
+            case_positions.append((number, line_number, case_id))
 
         if row[1] not in VALID_STATUSES:
             errors.append(_row_error(line_number, case_id, "invalid deletion_status"))
@@ -54,7 +55,7 @@ def validation_errors(predictions_path: Path, case_ids: Collection[str]) -> list
 
     errors.extend(
         f"missing case_id: {case_id}"
-        for case_id in sorted(requested_ids - found_ids, key=_case_number)
+        for case_id in sorted(requested_ids - found_ids, key=case_number)
     )
     errors.extend(_sort_errors(case_positions))
     return errors
@@ -69,14 +70,6 @@ def csv_rows(path: Path) -> list[list[str]]:
 def data_rows(path: Path) -> list[list[str]]:
     """Return CSV rows after the header."""
     return csv_rows(path)[1:]
-
-
-def _case_number(case_id: str) -> int:
-    prefix = "case_"
-    suffix = case_id.removeprefix(prefix)
-    if suffix == case_id or not suffix.isdecimal():
-        raise ValueError
-    return int(suffix)
 
 
 def _steps_json_errors(line_number: int, case_id: str, steps_json: str) -> list[str]:
@@ -100,8 +93,8 @@ def _row_error(line_number: int, case_id: str, message: str) -> str:
 def _sort_errors(case_positions: list[tuple[int, int, str]]) -> list[str]:
     errors: list[str] = []
     previous_number = -1
-    for case_number, line_number, case_id in case_positions:
-        if case_number < previous_number:
+    for number, line_number, case_id in case_positions:
+        if number < previous_number:
             errors.append(_row_error(line_number, case_id, "rows are not sorted by case number"))
-        previous_number = case_number
+        previous_number = number
     return errors
