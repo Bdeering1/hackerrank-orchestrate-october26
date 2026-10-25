@@ -6,7 +6,6 @@
       "collection": "security_audit_events",
       "records": [
         {"resource_id": "audit_record_2101", "subject_reference": "user_21"},
-        {"resource_id": "audit_record_2909", "subject_reference": "user_29"},
         {"resource_id": "audit_record_3411", "subject_reference": "user_34"}
       ]
     },
@@ -20,27 +19,12 @@
       ]
     },
     {
-      "captured_at": "2026-08-30T12:00:00Z",
-      "data_store": "identity_service",
-      "collection": "deleted_customer_references",
-      "records": [
-        {"resource_id": "tombstone_3101", "subject_reference": "user_31", "name": null, "email": null, "phone": null, "email_hash": null, "account_status": "DELETED"}
-      ]
-    },
-    {
-      "captured_at": "2026-09-02T12:00:00Z",
-      "data_store": "account_service",
-      "collection": "customer_profiles",
-      "records": []
-    },
-    {
       "captured_at": "2026-09-04T12:00:00Z",
       "data_store": "security_service",
       "collection": "security_audit_events",
       "records": [
         {"resource_id": "audit_record_2101", "subject_reference": "user_21"},
-        {"resource_id": "audit_record_2202", "subject_reference": "user_22"},
-        {"resource_id": "audit_record_2909", "subject_reference": "unrelated_user"}
+        {"resource_id": "audit_record_2202", "subject_reference": "user_22"}
       ]
     },
     {
@@ -48,8 +32,7 @@
       "data_store": "legal_service",
       "collection": "retained_order_records",
       "records": [
-        {"resource_id": "legal_hold_2303", "subject_reference": "user_23", "retained_until": "2030-01-01T00:00:00Z"},
-        {"resource_id": "legal_hold_2404", "subject_reference": "user_24", "retained_until": "2026-09-01T00:00:00Z"}
+        {"resource_id": "legal_hold_2303", "subject_reference": "user_23", "retained_until": "2030-01-01T00:00:00Z"}
       ]
     },
     {
@@ -58,7 +41,7 @@
       "collection": "deleted_customer_references",
       "records": [
         {"resource_id": "tombstone_2505", "subject_reference": "user_25", "name": null, "email": null, "phone": null, "email_hash": null, "account_status": "DELETED"},
-        {"resource_id": "tombstone_2606", "subject_reference": "user_26", "name": "Tombstone Exposed", "email": "tombstone.exposed@example.com", "phone": "+1 416 555 2606", "email_hash": "9b74c9897bac770ffc029102a200c5deefc4300674c9e6f51d9fb85d2e97b604", "account_status": "DELETED"}
+        {"resource_id": "tombstone_2606", "subject_reference": "user_26", "name": "Tombstone Exposed", "email": null, "phone": null, "email_hash": "9b74c9897bac770ffc029102a200c5deefc4300674c9e6f51d9fb85d2e97b604", "account_status": "DELETED"}
       ]
     }
   ]

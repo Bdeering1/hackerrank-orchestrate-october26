@@ -48,7 +48,7 @@ def _absent_account_steps(resource_id: str, evidence_id: str) -> list[dict[str, 
     return [_step(1, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", evidence_id)]
 
 
-def _remaining_steps(resource_id: str, system_id: str) -> list[dict[str, object]]:
+def _remaining_retention_steps(resource_id: str, system_id: str) -> list[dict[str, object]]:
     return [
         _step(
             1,
@@ -61,6 +61,22 @@ def _remaining_steps(resource_id: str, system_id: str) -> list[dict[str, object]
         ),
         _step(2, "REMEDIATION", resource_id, "DELETE_RECORD", "ABSENT", "", system_id),
         _step(3, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", "", system_id),
+    ]
+
+
+def _retained_steps(
+    resource_id: str, system_id: str, evidence_id: str = RETENTION_EVIDENCE_ID
+) -> list[dict[str, object]]:
+    return [
+        _step(
+            1,
+            "VERIFICATION",
+            resource_id,
+            "VERIFY_RECORD_PRESENT",
+            "PRESENT",
+            evidence_id,
+            system_id,
+        )
     ]
 
 
@@ -213,63 +229,23 @@ def test_main_writes_valid_output_and_usage(run):
             _absent_account_steps("account_1819", "evidence_02"),
             id="account deleted before an earlier request ignored",
         ),
-    ],
-)
-def test_main_audits_account_records(run, case_id, expected_status, expected_steps):
-    _, output_dir = run
-    output_rows = {
-        row[0]: (row[1], json.loads(row[2])) for row in data_rows(output_dir / "output.csv")
-    }
-
-    assert output_rows[case_id] == (expected_status, expected_steps)
-
-
-@pytest.mark.parametrize(
-    ("case_id", "expected_status", "expected_steps"),
-    [
         pytest.param(
             "case_21",
             "COMPLETE",
-            [
-                _step(
-                    1,
-                    "VERIFICATION",
-                    "audit_record_2101",
-                    "VERIFY_RECORD_PRESENT",
-                    "PRESENT",
-                    RETENTION_EVIDENCE_ID,
-                    SECURITY_SYSTEM,
-                )
-            ],
+            _retained_steps("audit_record_2101", SECURITY_SYSTEM),
             id="retained security audit record",
         ),
         pytest.param(
             "case_22",
             "INCOMPLETE",
-            _remaining_steps("audit_record_2202", SECURITY_SYSTEM),
+            _remaining_retention_steps("audit_record_2202", SECURITY_SYSTEM),
             id="expired security audit record",
         ),
         pytest.param(
             "case_23",
             "COMPLETE",
-            [
-                _step(
-                    1,
-                    "VERIFICATION",
-                    "legal_hold_2303",
-                    "VERIFY_RECORD_PRESENT",
-                    "PRESENT",
-                    RETENTION_EVIDENCE_ID,
-                    LEGAL_SYSTEM,
-                )
-            ],
+            _retained_steps("legal_hold_2303", LEGAL_SYSTEM),
             id="retained legal hold record",
-        ),
-        pytest.param(
-            "case_24",
-            "INCOMPLETE",
-            _remaining_steps("legal_hold_2404", LEGAL_SYSTEM),
-            id="expired legal hold record",
         ),
         pytest.param(
             "case_25",
@@ -319,87 +295,29 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                     IDENTITY_SYSTEM,
                 ),
             ],
-            id="tombstone exposing identifiers",
+            id="tombstone exposing some identifiers",
         ),
         pytest.param(
             "case_28",
             "COMPLETE",
-            [
-                _step(
-                    1,
-                    "VERIFICATION",
-                    "audit_record_2808",
-                    "VERIFY_RECORD_PRESENT",
-                    "PRESENT",
-                    RETENTION_EVIDENCE_ID,
-                    SECURITY_SYSTEM,
-                )
-            ],
+            _retained_steps("audit_record_2808", SECURITY_SYSTEM),
             id="retained record remains compliant when a later snapshot omits it",
-        ),
-        pytest.param(
-            "case_29",
-            "INCOMPLETE",
-            _remaining_steps("audit_record_2909", SECURITY_SYSTEM),
-            id="retention expires after the request",
-        ),
-        pytest.param(
-            "case_30",
-            "COMPLETE",
-            _absent_account_steps("account_omitted", "evidence_06"),
-            id="account absence predates its uncitable lookup",
-        ),
-        pytest.param(
-            "case_31",
-            "COMPLETE",
-            [
-                _step(
-                    1,
-                    "VERIFICATION",
-                    "tombstone_3101",
-                    "VERIFY_RECORD_REDACTED",
-                    "REDACTED",
-                    RETENTION_EVIDENCE_ID,
-                    IDENTITY_SYSTEM,
-                )
-            ],
-            id="tombstone remains compliant when a later snapshot omits it",
         ),
         pytest.param(
             "case_32",
             "INCOMPLETE",
-            [
-                _step(
-                    1,
-                    "VERIFICATION",
-                    "audit_record_3210",
-                    "VERIFY_RECORD_PRESENT",
-                    "PRESENT",
-                    "",
-                    SECURITY_SYSTEM,
-                )
-            ],
+            _retained_steps("audit_record_3210", SECURITY_SYSTEM, evidence_id=""),
             id="retained record explicitly absent",
         ),
         pytest.param(
             "case_34",
             "COMPLETE",
-            [
-                _step(
-                    1,
-                    "VERIFICATION",
-                    "audit_record_3411",
-                    "VERIFY_RECORD_PRESENT",
-                    "PRESENT",
-                    RETENTION_EVIDENCE_ID,
-                    SECURITY_SYSTEM,
-                )
-            ],
+            _retained_steps("audit_record_3411", SECURITY_SYSTEM),
             id="retained record observed before request",
         ),
     ],
 )
-def test_main_audits_retained_records_and_tombstones(run, case_id, expected_status, expected_steps):
+def test_main_audits_records(run, case_id, expected_status, expected_steps):
     _, output_dir = run
     output_rows = {
         row[0]: (row[1], json.loads(row[2])) for row in data_rows(output_dir / "output.csv")

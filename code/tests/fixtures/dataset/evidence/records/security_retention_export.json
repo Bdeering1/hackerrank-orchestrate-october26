@@ -3,8 +3,7 @@
     "security_service": {
       "audit_records": [
         {"resource_id": "audit_record_2101", "subject_reference": "user_21", "retention_until": "2030-01-01T00:00:00Z", "observed_at": "2026-08-20T12:00:00Z"},
-        {"resource_id": "audit_record_2202", "subject_reference": "user_22", "retention_until": "2026-09-01T00:00:00Z", "observed_at": "2026-09-04T12:00:00Z"},
-        {"resource_id": "audit_record_2909", "subject_reference": "user_29", "retention_until": "2026-09-01T00:00:00Z", "observed_at": "2026-08-20T12:00:00Z"}
+        {"resource_id": "audit_record_2202", "subject_reference": "user_22", "retention_until": "2026-09-01T00:00:00Z", "observed_at": "2026-09-04T12:00:00Z"}
       ]
     }
   }

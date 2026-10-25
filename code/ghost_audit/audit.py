@@ -181,7 +181,7 @@ class Auditor:
         system, resource_id = key
         category = observations[0].category
         action = self._dataset.required_actions[category]
-        if action == "RETAIN" and _retention_expired(observations, at):
+        if action == "RETAIN" and _is_retention_expired(observations, at):
             action = "DELETE"
         rule = PLAN_RULES[action]
         proofs = [
@@ -245,7 +245,7 @@ def _planned_steps(assessments: Iterable[_ResourceAssessment], *, is_complete: b
     )
 
 
-def _retention_expired(observations: Iterable[Observation], at: datetime) -> bool:
+def _is_retention_expired(observations: Iterable[Observation], at: datetime) -> bool:
     retention_end = max(
         (observation.retention_end for observation in observations if observation.retention_end),
         default=None,
