@@ -157,7 +157,7 @@ class Auditor:
         copy_states = [self._copy_state(proofs, audit_at) for proofs in proofs_by_copy.values()]
         gap_states = [copy for copy in copy_states if copy.state != rule.end_state]
         # A gap copy known only from uncitable files cites the resource's latest citable proof.
-        citation = _latest_citation(gap_states) or _latest_citation(copy_states)
+        citation = _preferred_citation(gap_states) or _preferred_citation(copy_states)
         if citation is None:
             return None
         return _ResourceAssessment(
@@ -187,7 +187,7 @@ def _authorizes_deletion(_request_text: str) -> bool:
     return True
 
 
-def _latest_citation(copy_states: Iterable[_CopyState]) -> _Proof | None:
+def _preferred_citation(copy_states: Iterable[_CopyState]) -> _Proof | None:
     citations = [copy.citation for copy in copy_states if copy.citation is not None]
     return max(citations, key=lambda proof: (proof.is_observation, proof.observed_at), default=None)
 
