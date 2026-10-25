@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from evaluation.runs import PromotionRefusedError, promote_run, record_holdout_run, record_run
+from evaluation.runs import (
+    PromotionRefusedError,
+    RunFiles,
+    promote_run,
+    record_holdout_run,
+    record_run,
+)
 from evaluation.score import case_scores, render_markdown
 from evaluation.usage import format_usage_summary, usage_summary
 from evaluation.validate import csv_rows, validation_errors
@@ -139,7 +145,14 @@ def _score_predictions(predictions_path: Path, suite: Suite, usage_path: Path | 
     summary = usage_summary(usage_path, len(request_audit_times))
     sys.stdout.write(f"{format_usage_summary(summary)}\n")
     record = record_holdout_run if suite.is_holdout else record_run
-    record(predictions_path, usage_path, suite.labels_path, scores_markdown)
+    record(
+        RunFiles(
+            output_path=predictions_path,
+            usage_path=usage_path,
+            labels_path=suite.labels_path,
+            scores_markdown=scores_markdown,
+        )
+    )
     return 0
 
 

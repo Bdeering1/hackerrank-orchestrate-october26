@@ -36,7 +36,7 @@ DOUBLE_EXPENSIVE_USAGE = {"models": [{**EXPENSIVE_USAGE["models"][0], "input_tok
 
 
 def _recorder(
-    tmp_path: Path, record_saved_run: Callable[[Path, Path, Path, str], str]
+    tmp_path: Path, record_saved_run: Callable[[runs.RunFiles], str]
 ) -> Callable[..., str]:
     def record_rows(rows: list[list[str]], usage: Mapping[str, object] = NO_USAGE) -> str:
         output_path = tmp_path / "output.csv"
@@ -44,7 +44,14 @@ def _recorder(
         with output_path.open("w", encoding="utf-8", newline="") as output_file:
             csv.writer(output_file).writerows(rows)
         usage_path.write_text(json.dumps(usage), encoding="utf-8")
-        return record_saved_run(output_path, usage_path, SAMPLE_OUTPUT_PATH, "scores")
+        return record_saved_run(
+            runs.RunFiles(
+                output_path=output_path,
+                usage_path=usage_path,
+                labels_path=SAMPLE_OUTPUT_PATH,
+                scores_markdown="scores",
+            )
+        )
 
     return record_rows
 

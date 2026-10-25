@@ -86,6 +86,21 @@ class PromotionRefusedError(Exception):
     """Raised when a run cannot be promoted."""
 
 
+@dataclass(frozen=True, kw_only=True)
+class RunFiles:
+    """The validated predictions, usage and rendered scores of a run, and the labels they used."""
+
+    output_path: Path
+    usage_path: Path
+    labels_path: Path
+    scores_markdown: str
+
+    def copy_into(self, run_dir: Path) -> None:
+        shutil.copyfile(self.output_path, run_dir / OUTPUT_FILENAME)
+        shutil.copyfile(self.usage_path, run_dir / USAGE_FILENAME)
+        (run_dir / SCORES_FILENAME).write_text(self.scores_markdown, encoding="utf-8")
+
+
 @dataclass(frozen=True)
 class CaseChange:
     """A case whose composite changed between two runs.
@@ -142,7 +157,7 @@ class RunComparison:
         return pooled_composite(changed_scores) - pooled_composite(self.baseline_scores)
 
 
-def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_markdown: str) -> str:
+def record_run(files: RunFiles) -> str:
     """Save a validated run, diff it against the baseline and promote it if it earns it.
 
     Writes the diff and promotion outcome to stdout and returns the run ID.
@@ -158,9 +173,7 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
         run_dir = RUNS_DIR / run_id
         outcome: Outcome = _save_into_new_dir(
             run_dir,
-            lambda: _save_run(
-                run_id, baseline_run_id, output_path, usage_path, labels_path, scores_markdown
-            ),
+            lambda: _save_run(run_id, baseline_run_id, files),
         )
         _write_run_record(
             run_dir,
@@ -168,7 +181,7 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
                 "run_id": run_id,
                 "created_at": now.isoformat(),
                 "agent_version": agent_version,
-                "scoring_sha256": _scoring_sha256(labels_path),
+                "scoring_sha256": _scoring_sha256(files.labels_path),
                 "promotion": {"outcome": outcome, "baseline_run_id": baseline_run_id},
             },
         )
@@ -181,9 +194,7 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
     return run_id
 
 
-def record_holdout_run(
-    output_path: Path, usage_path: Path, labels_path: Path, scores_markdown: str
-) -> str:
+def record_holdout_run(files: RunFiles) -> str:
     """Save a validated holdout run and diff it against the previous holdout run.
 
     Holdout runs are never promoted. Writes the diff to stdout and returns the run ID.
@@ -199,9 +210,7 @@ def record_holdout_run(
         run_dir = holdout_dir / run_id
         _save_into_new_dir(
             run_dir,
-            lambda: _save_holdout_run(
-                run_dir, previous_record, output_path, usage_path, labels_path, scores_markdown
-            ),
+            lambda: _save_holdout_run(run_dir, previous_record, files),
         )
         _write_run_record(
             run_dir,
@@ -209,7 +218,7 @@ def record_holdout_run(
                 "run_id": run_id,
                 "created_at": now.isoformat(),
                 "agent_version": agent_version,
-                "scoring_sha256": _scoring_sha256(labels_path),
+                "scoring_sha256": _scoring_sha256(files.labels_path),
                 "previous_run_id": previous_record["run_id"] if previous_record else None,
             },
         )
@@ -234,20 +243,17 @@ def _save_into_new_dir[T](run_dir: Path, save: typing.Callable[[], T]) -> T:
 def _save_holdout_run(
     run_dir: Path,
     previous_record: HoldoutRunRecord | None,
-    output_path: Path,
-    usage_path: Path,
-    labels_path: Path,
-    scores_markdown: str,
+    files: RunFiles,
 ) -> None:
-    _copy_run_files(run_dir, output_path, usage_path, scores_markdown)
+    files.copy_into(run_dir)
     if previous_record is None:
         sys.stdout.write("\nNo previous holdout run to compare with.\n")
         return
     comparison = compare_runs(
-        previous_record["run_id"], run_dir.name, labels_path, runs_dir=run_dir.parent
+        previous_record["run_id"], run_dir.name, files.labels_path, runs_dir=run_dir.parent
     )
     diff_markdown = _render_diff(comparison, HOLDOUT_REFERENCE) + _scoring_warning(
-        previous_record["scoring_sha256"], labels_path, HOLDOUT_REFERENCE
+        previous_record["scoring_sha256"], files.labels_path, HOLDOUT_REFERENCE
     )
     (run_dir / DIFF_FILENAME).write_text(diff_markdown, encoding="utf-8")
     sys.stdout.write(f"\n{diff_markdown}")
@@ -261,14 +267,6 @@ def _latest_holdout_record(holdout_dir: Path) -> HoldoutRunRecord | None:
     return max(records, key=lambda record: record["created_at"], default=None)
 
 
-def _copy_run_files(
-    run_dir: Path, output_path: Path, usage_path: Path, scores_markdown: str
-) -> None:
-    shutil.copyfile(output_path, run_dir / OUTPUT_FILENAME)
-    shutil.copyfile(usage_path, run_dir / USAGE_FILENAME)
-    (run_dir / SCORES_FILENAME).write_text(scores_markdown, encoding="utf-8")
-
-
 def _scoring_warning(recorded_scoring_sha256: str, labels_path: Path, reference_name: str) -> str:
     if recorded_scoring_sha256 == _scoring_sha256(labels_path):
         return ""
@@ -278,24 +276,17 @@ def _scoring_warning(recorded_scoring_sha256: str, labels_path: Path, reference_
     )
 
 
-def _save_run(
-    run_id: str,
-    baseline_run_id: str | None,
-    output_path: Path,
-    usage_path: Path,
-    labels_path: Path,
-    scores_markdown: str,
-) -> Outcome:
+def _save_run(run_id: str, baseline_run_id: str | None, files: RunFiles) -> Outcome:
     run_dir = RUNS_DIR / run_id
-    _copy_run_files(run_dir, output_path, usage_path, scores_markdown)
+    files.copy_into(run_dir)
 
     if baseline_run_id is None:
         sys.stdout.write("\nNo baseline: run promoted as the first baseline.\n")
         return "promoted"
-    comparison = compare_runs(baseline_run_id, run_id, labels_path)
+    comparison = compare_runs(baseline_run_id, run_id, files.labels_path)
     diff_markdown = _render_diff(comparison, BASELINE_REFERENCE) + _scoring_warning(
         _read_run_record(RUNS_DIR / baseline_run_id)["scoring_sha256"],
-        labels_path,
+        files.labels_path,
         BASELINE_REFERENCE,
     )
     (run_dir / DIFF_FILENAME).write_text(diff_markdown, encoding="utf-8")
