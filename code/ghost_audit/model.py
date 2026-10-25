@@ -44,8 +44,10 @@ class Claim:
     activity_id: str
     event_time: datetime
     event_type: str
+    source_system: str
     target_system: str
     resource_id: str
+    reported_result: str
     details: str
 
 

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import dataclasses
 import typing
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ghost_audit import identity
+from ghost_audit.categories import account
 from ghost_audit.model import ABSENT, Step
 from ghost_audit.output_format import (
     DELETE_RECORD,
@@ -18,12 +19,21 @@ if typing.TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
     from ghost_audit.dataset import Dataset
-    from ghost_audit.model import Coverage, Observation
+    from ghost_audit.model import Claim, Coverage, Observation
 
 COMPLETE = "COMPLETE"
 INCOMPLETE = "INCOMPLETE"
 NOT_APPLICABLE = "NOT_APPLICABLE"
 LINK_RESOURCE_IDENTITY = "LINK_RESOURCE_IDENTITY"
+DELETION_WORKER = "deletion_worker"
+TARGET_RESOURCE_MARKER = "Target resource:"
+NOMINATION_WINDOW = (timedelta(minutes=-78), timedelta(minutes=-42))
+TARGETED_NOMINATION_WINDOW = (timedelta(minutes=-15), timedelta(minutes=15))
+REPORTED_RESULT_BY_STATUS = {
+    COMPLETE: "SUCCESS",
+    "PARTIALLY_COMPLETE": "PARTIAL",
+    "NOT_STARTED": "FAILED",
+}
 
 type ResourceKey = tuple[str, str]
 
@@ -85,23 +95,52 @@ class Auditor:
             for claim in dataset.claims
             if claim.event_type == LINK_RESOURCE_IDENTITY
         ]
+        self._account_deletions = [
+            claim
+            for claim in dataset.claims
+            if claim.source_system == DELETION_WORKER
+            and claim.event_type == DELETE_RECORD.name
+            and claim.target_system == account.CATEGORY.default_system
+        ]
+        self._request_times_by_subject: dict[frozenset[str], list[tuple[datetime, datetime]]] = {}
+        for request in dataset.requests:
+            if _authorizes_deletion(request["request_text"]):
+                self._request_times_by_subject.setdefault(self._subject(request), []).append(
+                    (
+                        datetime.fromisoformat(request["requested_at"]),
+                        datetime.fromisoformat(request["audit_at"]),
+                    )
+                )
 
     def audited_case(self, request: Mapping[str, str]) -> tuple[str, list[Step]]:
         """Return the deletion status and ordered steps for one request."""
         if not _authorizes_deletion(request["request_text"]):
             return NOT_APPLICABLE, []
-        requested_at = datetime.fromisoformat(request["requested_at"])
         audit_at = datetime.fromisoformat(request["audit_at"])
-        request_identifier = identity.normalized_identifier(request["email"]) or ""
-        subject = self._identifiers_by_identifier.get(request_identifier, frozenset())
-        # A record last tied to the subject and already compliant before the request
-        # was handled by an earlier request.
+        subject = self._subject(request)
+        previous_audit_at = self._previous_audit_at(
+            subject, datetime.fromisoformat(request["requested_at"])
+        )
+        keys = [
+            key
+            for key, linked_at in sorted(self._link_times(subject, audit_at).items())
+            if previous_audit_at is None or linked_at > previous_audit_at
+        ]
         assessments = [
             assessment
-            for key, linked_at in sorted(self._link_times(subject, audit_at).items())
-            if not (linked_at < requested_at and self._is_compliant(key, requested_at))
-            and (assessment := self._assessment(key, audit_at)) is not None
+            for key in keys
+            if (assessment := self._assessment(key, audit_at)) is not None
         ]
+        has_linked_account = any(system == account.CATEGORY.default_system for system, _ in keys)
+        nominated_key = (
+            None if has_linked_account else self._nominated_account(request, subject, audit_at)
+        )
+        if nominated_key is not None:
+            assessment = self._assessment(
+                nominated_key, audit_at, default_category=account.CATEGORY.rule_category
+            )
+            if assessment is not None:
+                assessments.append(assessment)
         # evaluation.validate rejects COMPLETE and INCOMPLETE rows without steps.
         if not assessments:
             return NOT_APPLICABLE, []
@@ -128,12 +167,66 @@ class Auditor:
                 link_times[key] = max(linked_at, link_times.get(key, linked_at))
         return link_times
 
-    def _is_compliant(self, key: ResourceKey, at: datetime) -> bool:
-        rule_and_proofs = self._rule_and_proofs(key, at)
-        return rule_and_proofs is not None and not _gap_copies(*rule_and_proofs)
+    def _subject(self, request: Mapping[str, str]) -> frozenset[str]:
+        request_identifier = identity.normalized_identifier(request["email"]) or ""
+        return self._identifiers_by_identifier.get(request_identifier, frozenset())
 
-    def _assessment(self, key: ResourceKey, audit_at: datetime) -> _ResourceAssessment | None:
-        rule_and_proofs = self._rule_and_proofs(key, audit_at)
+    def _previous_audit_at(
+        self, subject: frozenset[str], requested_at: datetime
+    ) -> datetime | None:
+        previous_times = max(
+            (
+                times
+                for times in self._request_times_by_subject.get(subject, ())
+                if times[0] < requested_at
+            ),
+            default=None,
+        )
+        return None if previous_times is None else previous_times[1]
+
+    def _nominated_account(
+        self, request: Mapping[str, str], subject: frozenset[str], audit_at: datetime
+    ) -> ResourceKey | None:
+        reported_at = datetime.fromisoformat(request["reported_at"])
+        candidates = [
+            claim
+            for claim in self._account_deletions
+            if claim.event_time <= audit_at
+            and _is_in_nomination_window(claim, reported_at)
+            and not self._is_linked_to_other_user(
+                (claim.target_system, claim.resource_id), subject, audit_at
+            )
+        ]
+        expected_result = REPORTED_RESULT_BY_STATUS.get(request["reported_status"])
+        matching = [claim for claim in candidates if claim.reported_result == expected_result]
+        resource_ids = {claim.resource_id for claim in matching or candidates}
+        if len(resource_ids) != 1:
+            return None
+        return account.CATEGORY.default_system, resource_ids.pop()
+
+    def _is_linked_to_other_user(
+        self, key: ResourceKey, subject: frozenset[str], audit_at: datetime
+    ) -> bool:
+        linked_identifiers = [
+            observation.identifiers
+            for observation in self._observations_by_resource.get(key, ())
+            if observation.observed_at <= audit_at
+        ]
+        linked_identifiers.extend(
+            identifiers
+            for claim, identifiers in self._catalog_links
+            if (claim.target_system, claim.resource_id) == key and claim.event_time <= audit_at
+        )
+        return any(
+            self._identifiers_by_identifier.get(identifier, subject) != subject
+            for identifiers in linked_identifiers
+            for identifier in identifiers
+        )
+
+    def _assessment(
+        self, key: ResourceKey, audit_at: datetime, *, default_category: str | None = None
+    ) -> _ResourceAssessment | None:
+        rule_and_proofs = self._rule_and_proofs(key, audit_at, default_category)
         if rule_and_proofs is None:
             return None
         rule, proofs = rule_and_proofs
@@ -160,17 +253,17 @@ class Auditor:
         return _ResourceAssessment(system, resource_id, rule, has_gap, citation.evidence_id)
 
     def _rule_and_proofs(
-        self, key: ResourceKey, at: datetime
+        self, key: ResourceKey, at: datetime, default_category: str | None
     ) -> tuple[PlanRule, list[_Proof]] | None:
         observations = [
             observation
             for observation in self._observations_by_resource.get(key, ())
             if observation.observed_at <= at
         ]
-        if not observations:
+        category = observations[0].category if observations else default_category
+        if category is None:
             return None
         system, resource_id = key
-        category = observations[0].category
         proofs = [
             _Proof(
                 observation.copy,
@@ -197,6 +290,12 @@ class Auditor:
 
 def _authorizes_deletion(_request_text: str) -> bool:
     return True
+
+
+def _is_in_nomination_window(claim: Claim, reported_at: datetime) -> bool:
+    is_targeted = TARGET_RESOURCE_MARKER in claim.details
+    earliest, latest = TARGETED_NOMINATION_WINDOW if is_targeted else NOMINATION_WINDOW
+    return reported_at + earliest <= claim.event_time <= reported_at + latest
 
 
 def _gap_copies(rule: PlanRule, proofs: Iterable[_Proof]) -> set[str]:

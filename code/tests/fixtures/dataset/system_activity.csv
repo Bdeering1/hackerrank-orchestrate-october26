@@ -2,3 +2,25 @@ activity_id,event_time,event_type,source_system,target_system,resource_id,report
 activity_01,2026-09-01T08:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_101,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_101.
 activity_02,2026-09-02T06:07:01Z,LINK_RESOURCE_IDENTITY,data_catalog,account_service,account_606,SUCCESS,Data catalog linked account_606 (account_606) to t.novak@icloud.com and user_06.
 activity_03,2026-09-10T06:07:01Z,LINK_RESOURCE_IDENTITY,data_catalog,account_service,account_404,SUCCESS,Data catalog linked account_404 (account_404) to kwame-mensah@proton.me and user_04.
+activity_04,2026-09-07T07:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_2121,SUCCESS,Deletion worker submitted primary profile account_2121 to account_service.
+activity_05,2026-09-07T09:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_2222,SUCCESS,Deletion worker submitted primary profile account_2222 to account_service.
+activity_06,2026-09-07T09:10:00Z,DELETE_RECORD,deletion_worker,account_service,account_2223,SUCCESS,Deletion worker submitted primary profile account_2223 to account_service.
+activity_07,2026-09-07T11:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_101,SUCCESS,Deletion worker submitted primary profile account_101 to account_service.
+activity_08,2026-09-07T11:10:00Z,DELETE_RECORD,deletion_worker,account_service,account_2424,SUCCESS,Deletion worker submitted primary profile account_2424 to account_service.
+activity_09,2026-09-07T13:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_2525,SUCCESS,Deletion worker submitted primary profile account_2525 to account_service.
+activity_10,2026-09-07T13:10:00Z,DELETE_RECORD,deletion_worker,account_service,account_2526,FAILED,Deletion worker submitted primary profile account_2526 to account_service.
+activity_11,2026-09-07T15:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_2626,SUCCESS,Deletion worker submitted primary profile account_2626 to account_service.
+activity_12,2026-09-07T16:41:00Z,DELETE_RECORD,deletion_worker,account_service,account_2728,SUCCESS,Deletion worker submitted primary profile account_2728 to account_service.
+activity_13,2026-09-07T16:42:00Z,DELETE_RECORD,deletion_worker,account_service,account_2727,SUCCESS,Deletion worker submitted primary profile account_2727 to account_service.
+activity_14,2026-09-07T17:18:00Z,DELETE_RECORD,deletion_worker,account_service,account_2727,SUCCESS,Deletion worker submitted primary profile account_2727 to account_service.
+activity_15,2026-09-07T17:19:00Z,DELETE_RECORD,deletion_worker,account_service,account_2728,SUCCESS,Deletion worker submitted primary profile account_2728 to account_service.
+activity_16,2026-09-07T19:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_2829,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2829.
+activity_17,2026-09-07T19:44:00Z,DELETE_RECORD,deletion_worker,account_service,account_2829,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2829.
+activity_18,2026-09-07T19:45:00Z,DELETE_RECORD,deletion_worker,account_service,account_2828,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2828.
+activity_19,2026-09-07T20:15:00Z,DELETE_RECORD,deletion_worker,account_service,account_2828,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2828.
+activity_20,2026-09-07T20:16:00Z,DELETE_RECORD,deletion_worker,account_service,account_2829,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2829.
+activity_21,2026-09-07T21:50:00Z,DELETE_RECORD,deletion_worker,account_service,account_2929,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2929.
+activity_22,2026-09-07T22:10:00Z,DELETE_RECORD,deletion_worker,account_service,account_2930,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2930.
+activity_23,2026-09-08T07:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_3030,SUCCESS,Deletion worker submitted primary profile account_3030 to account_service.
+activity_24,2026-09-08T07:05:00Z,DELETE_RECORD,profile_service,account_service,account_3031,SUCCESS,Profile service removed profile account_3031 after a duplicate merge.
+activity_25,2026-09-08T07:10:00Z,REDACT_RECORD,deletion_worker,account_service,account_3032,SUCCESS,Deletion worker submitted redaction of profile account_3032 to account_service.
