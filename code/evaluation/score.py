@@ -120,7 +120,12 @@ def case_scores(predictions_path: Path, labels_path: Path) -> list[CaseScore]:
 
 def pooled_composite(scores: Collection[CaseScore]) -> float:
     """Weighted 0-100 composite of each metric pooled across cases."""
-    return 100 * sum(metric.weight * _pooled_ratio(metric, scores).value for metric in METRICS)
+    return 100 * sum(metric.weight * pooled_ratio(metric, scores).value for metric in METRICS)
+
+
+def pooled_ratio(metric: MetricDefinition, scores: Iterable[CaseScore]) -> Ratio:
+    """Pool one metric's ratio across cases."""
+    return sum((metric.ratio(score) for score in scores), Ratio(0, 0))
 
 
 def render_markdown(scores: Collection[CaseScore]) -> str:
@@ -134,7 +139,7 @@ def render_markdown(scores: Collection[CaseScore]) -> str:
     ]
     lines.extend(
         f"| {metric.label} | {metric.weight:.0%} | {metric.definition} | "
-        f"{_pooled_ratio(metric, scores).value:.1%} |"
+        f"{pooled_ratio(metric, scores).value:.1%} |"
         for metric in METRICS
     )
     lines.extend(
@@ -167,10 +172,6 @@ def _steps(steps_json: str) -> list[Step]:
     if not isinstance(parsed, list):
         raise TypeError("steps_json is not a JSON array")
     return [typing.cast("Step", step) for step in typing.cast("list[object]", parsed)]
-
-
-def _pooled_ratio(metric: MetricDefinition, scores: Iterable[CaseScore]) -> Ratio:
-    return sum((metric.ratio(score) for score in scores), Ratio(0, 0))
 
 
 def _step_f1(predicted_steps: list[Step], expected_steps: list[Step]) -> Ratio:
