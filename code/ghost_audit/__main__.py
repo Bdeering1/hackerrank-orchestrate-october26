@@ -13,7 +13,7 @@ import ghost_audit.intent
 import ghost_audit.llm
 import ghost_audit.usage
 from ghost_audit.audit import NOT_APPLICABLE, Auditor
-from ghost_audit.dataset import csv_records, loaded_dataset
+from ghost_audit.dataset import DELETION_REQUESTS_FILE_NAME, csv_records, loaded_dataset
 from ghost_audit.output_format import HEADER, case_number
 
 if typing.TYPE_CHECKING:
@@ -34,23 +34,25 @@ def main(argv: list[str]) -> int:
     arguments = _Arguments()
     parser.parse_args(argv, arguments)
 
-    requests_path = arguments.requests or arguments.dataset / "deletion_requests.csv"
+    requests_path = arguments.requests or arguments.dataset / DELETION_REQUESTS_FILE_NAME
     requests = sorted(
         csv_records(requests_path), key=lambda request: case_number(request["case_id"])
     )
+    dataset = loaded_dataset(arguments.dataset)
     tracker = ghost_audit.usage.UsageTracker()
     try:
         llm = ghost_audit.llm.connect(tracker)
+        # The auditor also needs the intent of each subject's earlier requests.
         authorizations = asyncio.run(
             ghost_audit.intent.classify_intents(
-                llm, (request["request_text"] for request in requests)
+                llm, (request["request_text"] for request in (*requests, *dataset.requests))
             )
         )
     except ghost_audit.llm.LLMError as error:
         sys.stderr.write(f"intent routing failed: {error}\n")
         return 1
 
-    auditor = Auditor(loaded_dataset(arguments.dataset))
+    auditor = Auditor(dataset, authorizations)
     with arguments.output.open("w", encoding="utf-8", newline="") as output_file:
         writer = csv.writer(output_file)
         writer.writerow(HEADER)

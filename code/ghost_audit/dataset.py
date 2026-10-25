@@ -12,11 +12,15 @@ from ghost_audit.model import Claim
 if typing.TYPE_CHECKING:
     from pathlib import Path
 
+DELETION_REQUESTS_FILE_NAME = "deletion_requests.csv"
+REQUEST_FILE_NAMES = (DELETION_REQUESTS_FILE_NAME, "sample_deletion_requests.csv")
+
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Dataset:
     """Every participant-facing input the audit needs, loaded once per run."""
 
+    requests: tuple[dict[str, str], ...]
     identities: tuple[dict[str, str], ...]
     audit_log: tuple[dict[str, str], ...]
     claims: tuple[Claim, ...]
@@ -26,9 +30,16 @@ class Dataset:
 
 
 def loaded_dataset(dataset_dir: Path) -> Dataset:
-    """Load identities, activity, rules and evidence from a dataset directory."""
+    """Load requests, identities, activity, rules and evidence from a dataset directory."""
     manifest = csv_records(dataset_dir / "evidence_files.csv")
+    request_paths = (dataset_dir / file_name for file_name in REQUEST_FILE_NAMES)
     return Dataset(
+        requests=tuple(
+            request
+            for request_path in request_paths
+            if request_path.exists()
+            for request in csv_records(request_path)
+        ),
         identities=tuple(csv_records(dataset_dir / "user_identities.csv")),
         audit_log=tuple(csv_records(dataset_dir / "user_audit_log.csv")),
         claims=tuple(
@@ -36,8 +47,10 @@ def loaded_dataset(dataset_dir: Path) -> Dataset:
                 activity_id=row["activity_id"],
                 event_time=datetime.fromisoformat(row["event_time"]),
                 event_type=row["event_type"],
+                source_system=row["source_system"],
                 target_system=row["target_system"],
                 resource_id=row["resource_id"],
+                reported_result=row["reported_result"],
                 details=row["details"],
             )
             for row in csv_records(dataset_dir / "system_activity.csv")

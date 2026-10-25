@@ -210,6 +210,73 @@ def test_main_writes_valid_output_and_usage(run):
             _absent_account_steps("account_1819", "evidence_02"),
             id="account deleted before an earlier request ignored",
         ),
+        pytest.param(
+            "case_22",
+            "COMPLETE",
+            _absent_account_steps("account_2121", "evidence_06"),
+            id="nominated account absent from snapshot",
+        ),
+        pytest.param("case_23", "NOT_APPLICABLE", [], id="ambiguous nomination"),
+        pytest.param(
+            "case_24",
+            "COMPLETE",
+            _absent_account_steps("account_2424", "evidence_06"),
+            id="nominee linked to another user ruled out",
+        ),
+        pytest.param(
+            "case_25",
+            "COMPLETE",
+            _absent_account_steps("account_2525", "evidence_06"),
+            id="nominee matches reported result",
+        ),
+        pytest.param(
+            "case_26",
+            "COMPLETE",
+            _absent_account_steps("account_2626", "evidence_06"),
+            id="no nominee matches reported result",
+        ),
+        pytest.param(
+            "case_27",
+            "COMPLETE",
+            _absent_account_steps("account_2727", "evidence_06"),
+            id="nomination window earliest edge",
+        ),
+        pytest.param(
+            "case_28",
+            "COMPLETE",
+            _absent_account_steps("account_2828", "evidence_06"),
+            id="targeted nomination window earliest edge",
+        ),
+        pytest.param(
+            "case_29",
+            "COMPLETE",
+            _absent_account_steps("account_2929", "evidence_06"),
+            id="nomination after audit_at ignored",
+        ),
+        pytest.param(
+            "case_30",
+            "COMPLETE",
+            _absent_account_steps("account_3030", "evidence_06"),
+            id="other activity never nominates",
+        ),
+        pytest.param(
+            "case_32",
+            "COMPLETE",
+            _absent_account_steps("account_3232", "evidence_06"),
+            id="links after audit_at never rule out a nominee",
+        ),
+        pytest.param(
+            "case_33",
+            "COMPLETE",
+            _absent_account_steps("account_3333", "evidence_06"),
+            id="nomination window latest edge",
+        ),
+        pytest.param(
+            "case_34",
+            "COMPLETE",
+            _absent_account_steps("account_3434", "evidence_06"),
+            id="targeted nomination window latest edge",
+        ),
     ],
 )
 def test_main_audits_account_records(run, case_id, expected_status, expected_steps):
