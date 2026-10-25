@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from evaluation.main import main
+from evaluation.usage import usage_summary
 from evaluation.validate import csv_rows, validation_errors
+from ghost_audit.usage import UsageTracker
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_OUTPUT_PATH = REPO_ROOT / "dataset" / "sample_output.csv"
@@ -16,7 +18,7 @@ RowsMutator = Callable[[CsvRows], CsvRows]
 
 
 def test_main_scores_sample_answers(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main([]) == 0
+    assert main(["--predictions", str(SAMPLE_OUTPUT_PATH)]) == 0
 
     captured = capsys.readouterr()
     assert "32/32" in captured.out
@@ -136,3 +138,44 @@ def test_validation_uses_numeric_case_order(tmp_path: Path) -> None:
     assert validation_errors(predictions_path, ["case_99", "case_100"]) == [
         "line 3 (case_99): rows are not sorted by case number"
     ]
+
+
+def test_main_runs_placeholder_agent(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main([]) == 0
+
+    captured = capsys.readouterr()
+    assert "status accuracy:" in captured.out
+    assert "usage:" in captured.out
+
+
+def test_usage_summary_calculates_model_and_overall_costs(tmp_path: Path) -> None:
+    usage_path = tmp_path / "usage.json"
+    tracker = UsageTracker()
+    tracker.record("anthropic", "claude-opus-5-5", 750_000, 400_000)
+    tracker.record("anthropic", "claude-sonnet-5-5", 500_000, 1_000_000)
+    tracker.record("anthropic", "claude-opus-5-5", 250_000, 100_000)
+    tracker.write(usage_path)
+
+    summary = usage_summary(usage_path, request_count=10)
+
+    opus, sonnet = (model.totals for model in summary.models)
+    assert (opus.calls, opus.input_tokens, opus.output_tokens) == (2, 1_000_000, 500_000)
+    assert opus.estimated_cost_usd == 14
+    assert (sonnet.calls, sonnet.input_tokens, sonnet.output_tokens) == (1, 500_000, 1_000_000)
+    assert sonnet.estimated_cost_usd == 11
+    assert summary.overall.total_tokens == 3_000_000
+    assert summary.overall.estimated_cost_usd == 25
+    assert summary.average_tokens_per_request(summary.overall) == 300_000
+    assert summary.cost_per_request_usd(summary.overall) == 2.5
+
+
+def test_usage_summary_rejects_unknown_model(tmp_path: Path) -> None:
+    usage_path = tmp_path / "usage.json"
+    usage_path.write_text(
+        '{"models":[{"provider":"test","model":"unknown","calls":1,'
+        '"input_tokens":1,"output_tokens":1}]}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="unknown"):
+        usage_summary(usage_path, request_count=1)
