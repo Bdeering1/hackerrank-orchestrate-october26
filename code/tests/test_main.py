@@ -10,6 +10,7 @@ from ghost_audit.__main__ import main
 DATASET_DIR = Path(__file__).resolve().parent / "fixtures" / "dataset"
 REQUESTS_PATH = DATASET_DIR / "deletion_requests.csv"
 ACCOUNT_SYSTEM = "account_service"
+SEARCH_SYSTEM = "search_service"
 
 
 def _step(
@@ -191,10 +192,10 @@ def test_main_writes_valid_output_and_usage(run):
                     "VERIFY_RECORD_ABSENT",
                     "ABSENT",
                     "",
-                    "search_service",
+                    SEARCH_SYSTEM,
                 ),
             ],
-            id="json replica row remains, search entry gone in later snapshot",
+            id="json replica row remains, search entry gone in evidence_13 snapshot",
         ),
         pytest.param(
             "case_18",
@@ -217,7 +218,7 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_21",
             "INCOMPLETE",
-            _remaining_steps("search_201", "evidence_13", "search_service"),
+            _remaining_steps("search_201", "evidence_13", SEARCH_SYSTEM),
             id="search index entry remains",
         ),
         pytest.param(
@@ -235,7 +236,7 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_24",
             "COMPLETE",
-            _absent_steps("search_501", "evidence_13", "search_service"),
+            _absent_steps("search_501", "evidence_13", SEARCH_SYSTEM),
             id="search index entry dropped from later snapshot",
         ),
     ],
