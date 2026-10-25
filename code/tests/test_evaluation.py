@@ -338,13 +338,13 @@ def _score_rows(status: str, steps: list[dict[str, object]]) -> CsvRows:
         ),
         pytest.param(
             "COMPLETE",
-            [{**SECOND_EXPECTED_STEP, "step_no": 1}, {**FIRST_EXPECTED_STEP, "step_no": 2}],
+            [{**SECOND_EXPECTED_STEP, "step_no": 1}],
             "sequence",
-            0.0,
+            0.5,
             id="sequence",
         ),
         pytest.param(
-            "COMPLETE", [FIRST_EXPECTED_STEP], "composite", pytest.approx(75.0), id="composite"
+            "COMPLETE", [FIRST_EXPECTED_STEP], "composite", pytest.approx(205 / 3), id="composite"
         ),
     ],
 )

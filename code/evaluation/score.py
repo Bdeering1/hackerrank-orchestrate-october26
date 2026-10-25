@@ -21,20 +21,20 @@ class MetricDefinition:
 
 
 METRICS = (
-    MetricDefinition("Status", 0.40, "Exact deletion-status match.", lambda score: score.status),
+    MetricDefinition("Status", 0.25, "Exact deletion-status match.", lambda score: score.status),
     MetricDefinition(
-        "Step", 0.30, "Multiset F1 over steps, ignoring step_no.", lambda score: score.step
+        "Step", 0.35, "Multiset F1 over steps, ignoring step_no.", lambda score: score.step
     ),
     MetricDefinition(
         "Field",
-        0.15,
+        0.30,
         "Operation, state, and evidence agreement for steps aligned by phase, system, and resource.",
         lambda score: score.field,
     ),
     MetricDefinition(
         "Sequence",
-        0.15,
-        "Exact positional step matches over the longer step list.",
+        0.10,
+        "1 minus the step edit distance, divided by the longer step list's length.",
         lambda score: score.sequence,
     ),
 )
@@ -158,11 +158,27 @@ def _field_score(predicted_steps: list[Step], expected_steps: list[Step]) -> flo
 def _sequence_score(predicted_steps: list[Step], expected_steps: list[Step]) -> float:
     if not predicted_steps and not expected_steps:
         return 1.0
-    matching_steps = sum(
-        _all_fields_match(predicted_step, expected_step)
-        for predicted_step, expected_step in zip(predicted_steps, expected_steps, strict=False)
+    edit_distance = _edit_distance(
+        [_step_content(step) for step in predicted_steps],
+        [_step_content(step) for step in expected_steps],
     )
-    return matching_steps / max(len(predicted_steps), len(expected_steps))
+    return 1 - edit_distance / max(len(predicted_steps), len(expected_steps))
+
+
+def _edit_distance[T](predicted_items: list[T], expected_items: list[T]) -> int:
+    previous_row = list(range(len(expected_items) + 1))
+    for row_index, predicted_item in enumerate(predicted_items, start=1):
+        current_row = [row_index]
+        for column_index, expected_item in enumerate(expected_items, start=1):
+            current_row.append(
+                min(
+                    previous_row[column_index] + 1,
+                    current_row[column_index - 1] + 1,
+                    previous_row[column_index - 1] + (predicted_item != expected_item),
+                )
+            )
+        previous_row = current_row
+    return previous_row[-1]
 
 
 def _step_content(step: Step) -> tuple[str, str, str, str, str, str]:
@@ -182,12 +198,6 @@ def _first_steps_by_key(steps: list[Step]) -> dict[tuple[str, str, str], Step]:
         key = (step["phase"], step["system_id"], step["resource_id"])
         first_steps.setdefault(key, step)
     return first_steps
-
-
-def _all_fields_match(predicted_step: Step, expected_step: Step) -> bool:
-    return predicted_step["step_no"] == expected_step["step_no"] and _step_content(
-        predicted_step
-    ) == _step_content(expected_step)
 
 
 def _mean(values: Iterable[float]) -> float:
