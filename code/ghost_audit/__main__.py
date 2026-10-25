@@ -45,7 +45,7 @@ def main(argv: list[str]) -> int:
         llm = ghost_audit.llm.connect(tracker)
         # The auditor also needs the intent of each subject's earlier requests.
         authorizations, extracted_observations = asyncio.run(
-            _llm_results(
+            _authorizations_and_extracted_observations(
                 llm,
                 [request["request_text"] for request in (*requests, *dataset.requests)],
                 arguments.dataset,
@@ -77,7 +77,7 @@ def main(argv: list[str]) -> int:
     return 0
 
 
-async def _llm_results(
+async def _authorizations_and_extracted_observations(
     llm: ghost_audit.llm.StructuredLLM, request_texts: list[str], dataset_dir: pathlib.Path
 ) -> tuple[dict[str, bool], tuple[Observation, ...]]:
     # One event loop for both stages: the gateway client is bound to the loop it was created in.

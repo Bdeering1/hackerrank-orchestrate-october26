@@ -214,7 +214,7 @@ class StructuredLLM:
             "schema": request.schema,
             "user_message": request.user_message,
         }
-        # Omitted when absent so text-only requests keep their existing cache keys.
+        # Omitted when absent so image-free requests hash only their text fields.
         if request.image_url is not None:
             cache_fields["image_url"] = request.image_url
         cache_input = json.dumps(

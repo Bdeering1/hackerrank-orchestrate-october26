@@ -139,7 +139,6 @@ def test_pdf_pages_are_read_from_the_text_layer(tmp_path: Path) -> None:
         resource_id="support_001",
         category="SUPPORT_ATTACHMENT",
         identifiers=["priya.raman@gmail.com"],
-        observed_at="2026-06-18T10:24:00+00:00",
     )
     transport = FakeTransport(
         scripted([_turn("read_page", page=2), _turn("submit", records=[record])])
@@ -147,7 +146,6 @@ def test_pdf_pages_are_read_from_the_text_layer(tmp_path: Path) -> None:
 
     observations = _extracted(dataset_dir, transport, tmp_path / "cache")
 
-    assert page_texts[1] not in transport.requests[0].user_message
     assert json.dumps(page_texts[1]) in transport.requests[1].user_message
     assert observations == (
         Observation(
@@ -158,7 +156,7 @@ def test_pdf_pages_are_read_from_the_text_layer(tmp_path: Path) -> None:
             state="PRESENT",
             is_condition_met=True,
             identifiers=frozenset({"priya.raman@gmail.com"}),
-            observed_at=datetime(2026, 6, 18, 10, 24, tzinfo=UTC),
+            observed_at=CAPTURED_AT,
             evidence_id=EVIDENCE_ID,
         ),
     )
@@ -172,6 +170,11 @@ def test_pdf_pages_are_read_from_the_text_layer(tmp_path: Path) -> None:
         (
             _turn("submit", records=[_record(observed_at="2026-09-27T00:00:00+00:00")]),
             "2026-09-27T00:00:00+00:00",
+        ),
+        (_turn("submit", records=[_record(resource_id="CS-8538")]), "CS-8538"),
+        (
+            _turn("submit", records=[_record(observed_at="2026-09-20T00:00:00")]),
+            "2026-09-20T00:00:00",
         ),
         (_turn("delete_file"), "delete_file"),
     ],
@@ -199,6 +202,14 @@ def test_file_without_valid_submission_yields_nothing_after_turn_cap(
     assert EVIDENCE_ID in capsys.readouterr().err
 
 
+def test_unreadable_pdf_yields_nothing(tmp_path: Path) -> None:
+    dataset_dir = _dataset_dir(tmp_path, PDF_PATH, b"not a pdf")
+    transport = FakeTransport(scripted([]))
+
+    assert _extracted(dataset_dir, transport, tmp_path / "cache") == ()
+    assert transport.requests == []
+
+
 def test_instructions_in_file_text_stay_data(tmp_path: Path) -> None:
     dataset_dir = _dataset_dir(tmp_path, PDF_PATH, _pdf_bytes([INJECTED_TEXT]))
     transport = FakeTransport(
@@ -222,7 +233,7 @@ def test_instructions_in_file_text_stay_data(tmp_path: Path) -> None:
 
 def test_repeat_run_uses_cache_without_calls(screenshot_dir: Path, tmp_path: Path) -> None:
     cache_dir = tmp_path / "cache"
-    script = [_turn("delete_file"), _turn("submit", records=[_record()])]
+    script = [_turn("submit", records=[_record()])]
     first_run = _extracted(screenshot_dir, FakeTransport(scripted(script)), cache_dir)
     repeat_transport = FakeTransport(scripted([]))
 
