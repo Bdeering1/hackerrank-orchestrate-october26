@@ -22,6 +22,12 @@ from tests.fakes import (
 DATASET_DIR = Path(__file__).resolve().parent / "fixtures" / "dataset"
 REQUESTS_PATH = DATASET_DIR / "deletion_requests.csv"
 ACCOUNT_SYSTEM = "account_service"
+BACKUP_SYSTEM = "backup_service"
+DATA_FLOW_SYSTEM = "integration_service"
+SECURITY_SYSTEM = "security_service"
+IDENTITY_SYSTEM = "identity_service"
+LEGAL_SYSTEM = "legal_service"
+RETENTION_EVIDENCE_ID = "evidence_101"
 SUPPORT_SYSTEM = "support_platform"
 ANALYTICS_SYSTEM = "analytics_platform"
 SEARCH_SYSTEM = "search_service"
@@ -86,6 +92,71 @@ def _remaining_record_steps(
         "ABSENT",
         finding="REPORT_REMAINING_RECORD",
     )
+
+
+def _remaining_account_flow_and_backup_steps(evidence_id: str) -> list[dict[str, object]]:
+    return [
+        _step(1, "FINDING", "account_2101", "REPORT_REMAINING_RECORD", "PRESENT", evidence_id),
+        _step(
+            2,
+            "FINDING",
+            "data_flow_2101",
+            "REPORT_ACTIVE_DATA_FLOW",
+            "ACTIVE",
+            evidence_id,
+            DATA_FLOW_SYSTEM,
+        ),
+        _step(
+            3, "FINDING", "backup_2101", "REPORT_RESTORE_RISK", "ACTIVE", evidence_id, BACKUP_SYSTEM
+        ),
+        _step(
+            4,
+            "REMEDIATION",
+            "data_flow_2101",
+            "DISABLE_DATA_FLOW",
+            "DISABLED",
+            "",
+            DATA_FLOW_SYSTEM,
+        ),
+        _step(5, "REMEDIATION", "backup_2101", "BLOCK_RESTORE", "BLOCKED", "", BACKUP_SYSTEM),
+        _step(6, "REMEDIATION", "account_2101", "DELETE_RECORD", "ABSENT", ""),
+        _step(7, "VERIFICATION", "account_2101", "VERIFY_RECORD_ABSENT", "ABSENT", ""),
+        _step(
+            8,
+            "VERIFICATION",
+            "data_flow_2101",
+            "VERIFY_DATA_FLOW_DISABLED",
+            "DISABLED",
+            "",
+            DATA_FLOW_SYSTEM,
+        ),
+        _step(
+            9, "VERIFICATION", "backup_2101", "VERIFY_RESTORE_BLOCKED", "BLOCKED", "", BACKUP_SYSTEM
+        ),
+    ]
+
+
+def _blocked_flow_and_backup_steps(evidence_id: str) -> list[dict[str, object]]:
+    return [
+        _step(
+            1,
+            "VERIFICATION",
+            "data_flow_2202",
+            "VERIFY_DATA_FLOW_DISABLED",
+            "DISABLED",
+            evidence_id,
+            DATA_FLOW_SYSTEM,
+        ),
+        _step(
+            2,
+            "VERIFICATION",
+            "backup_2202",
+            "VERIFY_RESTORE_BLOCKED",
+            "BLOCKED",
+            evidence_id,
+            BACKUP_SYSTEM,
+        ),
+    ]
 
 
 @pytest.fixture(scope="module")
@@ -329,9 +400,96 @@ def test_main_writes_valid_output_and_usage(run):
             _verified_steps("account_3434", "evidence_06"),
             id="targeted nomination window latest edge",
         ),
+        pytest.param(
+            "case_51",
+            "INCOMPLETE",
+            _remaining_account_flow_and_backup_steps("evidence_04"),
+            id="active connector and restorable backup remediated before account delete",
+        ),
+        pytest.param(
+            "case_52",
+            "COMPLETE",
+            _blocked_flow_and_backup_steps("evidence_04"),
+            id="disabled connector and blocked backup survive snapshot omission",
+        ),
+        pytest.param(
+            "case_101",
+            "COMPLETE",
+            _verified_steps(
+                "audit_record_2101",
+                RETENTION_EVIDENCE_ID,
+                "VERIFY_RECORD_PRESENT",
+                "PRESENT",
+                SECURITY_SYSTEM,
+            ),
+            id="retained security audit record",
+        ),
+        pytest.param(
+            "case_102",
+            "INCOMPLETE",
+            _remaining_record_steps("audit_record_2202", RETENTION_EVIDENCE_ID, SECURITY_SYSTEM),
+            id="expired security audit record",
+        ),
+        pytest.param(
+            "case_103",
+            "COMPLETE",
+            _verified_steps(
+                "legal_hold_2303",
+                RETENTION_EVIDENCE_ID,
+                "VERIFY_RECORD_PRESENT",
+                "PRESENT",
+                LEGAL_SYSTEM,
+            ),
+            id="retained legal hold record",
+        ),
+        pytest.param(
+            "case_104",
+            "COMPLETE",
+            _verified_steps(
+                "tombstone_2505",
+                RETENTION_EVIDENCE_ID,
+                "VERIFY_RECORD_REDACTED",
+                "REDACTED",
+                IDENTITY_SYSTEM,
+            ),
+            id="clean tombstone",
+        ),
+        pytest.param(
+            "case_105",
+            "INCOMPLETE",
+            _treatment_steps(
+                IDENTITY_SYSTEM,
+                "tombstone_2606",
+                RETENTION_EVIDENCE_ID,
+                "REDACT_RECORD",
+                "VERIFY_RECORD_REDACTED",
+                "REDACTED",
+            ),
+            id="tombstone exposing some identifiers",
+        ),
+        pytest.param(
+            "case_106",
+            "COMPLETE",
+            _verified_steps(
+                "audit_record_2808",
+                RETENTION_EVIDENCE_ID,
+                "VERIFY_RECORD_PRESENT",
+                "PRESENT",
+                SECURITY_SYSTEM,
+            ),
+            id="retained record remains compliant when a later snapshot omits it",
+        ),
+        pytest.param(
+            "case_107",
+            "INCOMPLETE",
+            _verified_steps(
+                "audit_record_3210", "", "VERIFY_RECORD_PRESENT", "PRESENT", SECURITY_SYSTEM
+            ),
+            id="retained record explicitly absent",
+        ),
     ],
 )
-def test_main_audits_account_records(run, case_id, expected_status, expected_steps):
+def test_main_audits_records(run, case_id, expected_status, expected_steps):
     _, output_dir = run
     output_rows = {
         row[0]: (row[1], json.loads(row[2])) for row in data_rows(output_dir / "output.csv")
