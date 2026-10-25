@@ -16,8 +16,9 @@ def _existing_state(_record: Mapping[str, object]) -> str:
 CATEGORY = Category(
     rule_category="USER_PROFILE",
     default_system="account_service",
-    evidence_names=frozenset(
-        {"customer_profiles", "profile_lookups", "USER_PROFILE", "profile_lookup_completed"}
-    ),
+    table_names=frozenset({"customer_profiles"}),
+    collection_names=frozenset({"customer_profiles", "profile_lookups"}),
+    record_types=frozenset({"USER_PROFILE"}),
+    log_events=frozenset({"profile_lookup_completed"}),
     existing_state=_existing_state,
 )

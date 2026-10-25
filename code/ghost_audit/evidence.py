@@ -11,7 +11,7 @@ from ghost_audit import identity
 from ghost_audit.model import ABSENT, PRIMARY_COPY, Coverage, Observation
 
 if typing.TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from pathlib import Path
 
     from ghost_audit.categories import Category
@@ -50,25 +50,55 @@ class Evidence:
     coverages: tuple[Coverage, ...]
 
 
-def read_evidence(paths_by_id: Mapping[str, Path], categories: Iterable[Category]) -> Evidence:
+@dataclasses.dataclass(frozen=True, slots=True)
+class _CategoryLookup:
+    by_table: Mapping[str, Category]
+    by_collection: Mapping[str, Category]
+    by_record_type: Mapping[str, Category]
+    by_log_event: Mapping[str, Category]
+
+
+def read_evidence(paths_by_id: Mapping[str, Path], categories: Sequence[Category]) -> Evidence:
     """Convert every structured evidence file into Observations and Coverages."""
-    reader = _EvidenceReader(categories)
+    lookup = _CategoryLookup(
+        by_table=_categories_by_name(categories, lambda category: category.table_names),
+        by_collection=_categories_by_name(categories, lambda category: category.collection_names),
+        by_record_type=_categories_by_name(categories, lambda category: category.record_types),
+        by_log_event=_categories_by_name(categories, lambda category: category.log_events),
+    )
+    observations: list[Observation] = []
+    coverages: list[Coverage] = []
     for evidence_id, path in paths_by_id.items():
-        reader.read(evidence_id, path)
-    return Evidence(tuple(reader.observations), tuple(reader.coverages))
+        reader = _EvidenceReader(lookup, evidence_id)
+        reader.read(path)
+        observations.extend(reader.observations)
+        coverages.extend(reader.coverages)
+    return Evidence(tuple(observations), tuple(coverages))
+
+
+def _categories_by_name(
+    categories: Iterable[Category], names_of: Callable[[Category], frozenset[str]]
+) -> dict[str, Category]:
+    categories_by_name: dict[str, Category] = {}
+    for category in categories:
+        for name in names_of(category):
+            claimant = categories_by_name.setdefault(name, category)
+            if claimant is not category:
+                message = (
+                    f"{name} is claimed by {claimant.rule_category} and {category.rule_category}"
+                )
+                raise ValueError(message)
+    return categories_by_name
 
 
 class _EvidenceReader:
-    def __init__(self, categories: Iterable[Category]) -> None:
-        self._categories_by_name = {
-            name: category for category in categories for name in category.evidence_names
-        }
-        self._evidence_id = ""
+    def __init__(self, lookup: _CategoryLookup, evidence_id: str) -> None:
+        self._lookup = lookup
+        self._evidence_id = evidence_id
         self.observations: list[Observation] = []
         self.coverages: list[Coverage] = []
 
-    def read(self, evidence_id: str, path: Path) -> None:
-        self._evidence_id = evidence_id
+    def read(self, path: Path) -> None:
         match path.suffix:
             case ".sql":
                 self._read_sql(path.read_text(encoding="utf-8"))
@@ -81,9 +111,6 @@ class _EvidenceReader:
                 self._read_text_records(path.read_text(encoding="utf-8").splitlines())
             case _:
                 pass
-
-    def _category(self, name: object) -> Category | None:
-        return self._categories_by_name.get(str(name))
 
     def _observe(
         self,
@@ -130,7 +157,7 @@ class _EvidenceReader:
         )
 
     def _read_ledger_item(self, record: Record, observed_at: datetime) -> None:
-        category = self._category(record[RECORD_TYPE])
+        category = self._lookup.by_record_type.get(str(record[RECORD_TYPE]))
         if category is not None:
             self._observe(category, str(record["system"]), PRIMARY_COPY, record, observed_at)
 
@@ -148,7 +175,7 @@ class _EvidenceReader:
             for row in rows_by_table["snapshot_scope"]
         }
         for table, rows in rows_by_table.items():
-            category = self._category(table)
+            category = self._lookup.by_table.get(table)
             if category is None:
                 continue
             observed_at = captured_at_by_system.get(category.default_system)
@@ -193,9 +220,9 @@ class _EvidenceReader:
 
     def _topology_source(self, row: Record, base_table: str) -> tuple[str, Category, Record] | None:
         if "record_json" not in row:
-            category = self._category(base_table)
+            category = self._lookup.by_table.get(base_table)
             return None if category is None else (category.default_system, category, row)
-        category = self._category(row["collection_name"])
+        category = self._lookup.by_collection.get(str(row["collection_name"]))
         record = _as_record(_parsed_json(str(row["record_json"])))
         if category is None or record is None:
             return None
@@ -209,7 +236,7 @@ class _EvidenceReader:
             return
         for system, collections in exports.items():
             for collection, items in (_as_record(collections) or {}).items():
-                category = self._category(collection)
+                category = self._lookup.by_collection.get(collection)
                 if category is None:
                     continue
                 for item in _as_list(items):
@@ -228,7 +255,7 @@ class _EvidenceReader:
         if RECORD_TYPE in record and RESOURCE_ID in record:
             self._read_ledger_item(record, _time(record["recorded_at"]))
             return
-        category = self._category(record.get("collection"))
+        category = self._lookup.by_collection.get(str(record.get("collection")))
         if category is not None and "captured_at" in record:
             system = str(record.get("data_store", category.default_system))
             records = [
@@ -251,7 +278,7 @@ class _EvidenceReader:
             if RECORD_TYPE in event:
                 self._read_ledger_item(event, _time(event["timestamp"]))
                 continue
-            category = self._category(event.get("event"))
+            category = self._lookup.by_log_event.get(event.get("event", ""))
             if category is None or RESOURCE_ID not in event:
                 continue
             observed_at = _time(event["timestamp"])

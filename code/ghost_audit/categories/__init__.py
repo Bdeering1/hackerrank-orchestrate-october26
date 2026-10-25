@@ -11,11 +11,14 @@ if typing.TYPE_CHECKING:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Category:
-    """A data category: its rule, default system and the evidence that identifies it."""
+    """A data category: its rule, default system and the evidence names that identify it."""
 
     rule_category: str
     default_system: str
-    evidence_names: frozenset[str]
+    table_names: frozenset[str]
+    collection_names: frozenset[str]
+    record_types: frozenset[str]
+    log_events: frozenset[str]
     existing_state: Callable[[Mapping[str, object]], str]
 
 

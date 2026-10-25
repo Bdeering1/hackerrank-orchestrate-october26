@@ -5,12 +5,13 @@ import typing
 from datetime import datetime
 
 from ghost_audit import identity
-from ghost_audit.model import ABSENT, PRESENT, Step
+from ghost_audit.model import ABSENT, Step
 from ghost_audit.output_format import (
-    FINDING_PHASE,
+    DELETE_RECORD,
     OPERATION_ORDER,
-    REMEDIATION_PHASE,
-    VERIFICATION_PHASE,
+    REPORT_REMAINING_RECORD,
+    VERIFY_RECORD_ABSENT,
+    Operation,
 )
 
 if typing.TYPE_CHECKING:
@@ -32,18 +33,13 @@ class PlanRule:
     """The end state a rule action requires and the steps that reach and check it."""
 
     end_state: str
-    finding: tuple[str, str]
-    remediation: tuple[str, str]
-    verification: tuple[str, str]
+    finding: Operation
+    remediation: Operation
+    verification: Operation
 
 
 PLAN_RULES = {
-    "DELETE": PlanRule(
-        ABSENT,
-        ("REPORT_REMAINING_RECORD", PRESENT),
-        ("DELETE_RECORD", ABSENT),
-        ("VERIFY_RECORD_ABSENT", ABSENT),
-    ),
+    "DELETE": PlanRule(ABSENT, REPORT_REMAINING_RECORD, DELETE_RECORD, VERIFY_RECORD_ABSENT),
 }
 
 
@@ -75,6 +71,9 @@ class Auditor:
 
     def __init__(self, dataset: Dataset) -> None:
         self._dataset = dataset
+        self._identifiers_by_identifier = identity.identifiers_by_identifier(
+            dataset.identities, dataset.audit_log
+        )
         self._observations_by_identifier: dict[str, list[Observation]] = {}
         self._observations_by_resource: dict[ResourceKey, list[Observation]] = {}
         for observation in dataset.evidence.observations:
@@ -97,9 +96,8 @@ class Auditor:
         if not _authorizes_deletion(request["request_text"]):
             return NOT_APPLICABLE, []
         audit_at = datetime.fromisoformat(request["audit_at"])
-        subject = identity.subject_identifiers(
-            request["email"], self._dataset.identities, self._dataset.audit_log
-        )
+        request_identifier = identity.normalized_identifier(request["email"]) or ""
+        subject = self._identifiers_by_identifier.get(request_identifier, frozenset())
         assessments = [
             assessment
             for key in sorted(self._linked_resources(subject, audit_at))
@@ -197,12 +195,10 @@ def _planned_steps(assessments: Iterable[_ResourceAssessment], *, is_complete: b
     for assessment in assessments:
         rule = assessment.rule
         if assessment.has_gap:
-            steps.append(_step(FINDING_PHASE, assessment, rule.finding, assessment.evidence_id))
-            steps.append(_step(REMEDIATION_PHASE, assessment, rule.remediation, ""))
+            steps.append(_step(assessment, rule.finding, assessment.evidence_id))
+            steps.append(_step(assessment, rule.remediation, ""))
         verification_evidence = assessment.evidence_id if is_complete else ""
-        steps.append(
-            _step(VERIFICATION_PHASE, assessment, rule.verification, verification_evidence)
-        )
+        steps.append(_step(assessment, rule.verification, verification_evidence))
     return sorted(
         steps,
         key=lambda step: (
@@ -213,14 +209,12 @@ def _planned_steps(assessments: Iterable[_ResourceAssessment], *, is_complete: b
     )
 
 
-def _step(
-    phase: str, assessment: _ResourceAssessment, operation: tuple[str, str], evidence_id: str
-) -> Step:
+def _step(assessment: _ResourceAssessment, operation: Operation, evidence_id: str) -> Step:
     return Step(
-        phase=phase,
+        phase=operation.phase,
         system_id=assessment.system,
         resource_id=assessment.resource_id,
-        operation=operation[0],
-        state=operation[1],
+        operation=operation.name,
+        state=operation.state,
         evidence_id=evidence_id,
     )

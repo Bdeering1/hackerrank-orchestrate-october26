@@ -31,12 +31,11 @@ def identifiers_in_text(text: str) -> frozenset[str]:
     return frozenset(match[0].lower() for match in IDENTIFIERS_IN_TEXT_PATTERN.finditer(text))
 
 
-def subject_identifiers(
-    email: str,
+def identifiers_by_identifier(
     identities: Iterable[Mapping[str, str]],
     audit_log: Iterable[Mapping[str, str]],
-) -> frozenset[str]:
-    """Return every current and historical identifier of the user the email belongs to."""
+) -> dict[str, frozenset[str]]:
+    """Map each current or historical identifier to every identifier of the same user."""
     values_by_user: dict[str, set[str]] = {}
     for identity in identities:
         values = values_by_user.setdefault(identity["user_id"], {identity["user_id"]})
@@ -46,13 +45,13 @@ def subject_identifiers(
             values = values_by_user.setdefault(change["user_id"], {change["user_id"]})
             values.update((change["old_value"], change["new_value"]))
 
-    request_email = normalized_identifier(email)
+    user_identifiers_by_identifier: dict[str, frozenset[str]] = {}
     for values in values_by_user.values():
         identifiers = frozenset(
             identifier
             for value in values
             if (identifier := normalized_identifier(value)) is not None
         )
-        if request_email in identifiers:
-            return identifiers
-    return frozenset()
+        for identifier in identifiers:
+            user_identifiers_by_identifier.setdefault(identifier, identifiers)
+    return user_identifiers_by_identifier
