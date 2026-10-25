@@ -442,15 +442,10 @@ def _compare_full_sets(baseline_run_dir: Path, run_dir: Path) -> FullSetComparis
     }
     changed_case_count = 0
     for case_id, (baseline_status, baseline_steps) in baseline_rows.items():
-        run_row = run_rows.get(case_id)
-        if run_row is None:
-            changed_case_count += 1
-            continue
-        run_status, run_steps = run_row
+        run_status, run_steps = run_rows[case_id]
         status_transitions[baseline_status][run_status] += 1
         if baseline_status != run_status or baseline_steps != run_steps:
             changed_case_count += 1
-    changed_case_count += len(run_rows.keys() - baseline_rows.keys())
 
     disagreements = [
         FullSetCaseDisagreement(

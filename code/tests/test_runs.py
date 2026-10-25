@@ -166,33 +166,36 @@ def test_tie_is_decided_by_large_full_set_cost_difference(
     assert _outcome(record(_perfect_rows(), baseline_usage, _perfect_rows(), run_usage)) == outcome
 
 
-def test_cheaper_run_with_full_set_changes_ties(record) -> None:
+@pytest.mark.parametrize(
+    ("run_full_rows", "changed_case_count"),
+    [
+        pytest.param(lambda: _rows_with_steps_removed({DEGRADED_CASE_ID: 1}), 1, id="step-removed"),
+        pytest.param(_rows_with_reformatted_steps, 0, id="reformatted"),
+    ],
+)
+def test_full_set_changed_cases_compare_parsed_steps(
+    record, run_full_rows, changed_case_count
+) -> None:
+    baseline_id = record(_perfect_rows(), full_rows=_perfect_rows())
+    run_id = record(_perfect_rows(), full_rows=run_full_rows())
+
+    full_set = compare_runs(baseline_id, run_id, SAMPLE_OUTPUT_PATH).full_set
+
+    assert full_set is not None
+    assert full_set.changed_case_count == changed_case_count
+
+
+@pytest.mark.parametrize(
+    "run_full_rows",
+    [
+        pytest.param(_degraded_rows, id="status-change"),
+        pytest.param(lambda: _rows_with_steps_removed({DEGRADED_CASE_ID: 1}), id="step-change"),
+    ],
+)
+def test_cheaper_run_with_full_set_changes_ties(record, run_full_rows) -> None:
     record(_perfect_rows(), EXPENSIVE_USAGE, _perfect_rows())
 
-    assert _outcome(record(_perfect_rows(), NO_USAGE, _degraded_rows())) == "tie"
-
-
-def test_step_only_full_set_changes_tie_and_reformatted_steps_do_not_change(record) -> None:
-    baseline_id = record(_perfect_rows(), EXPENSIVE_USAGE, _perfect_rows())
-    changed_run_id = record(
-        _perfect_rows(),
-        NO_USAGE,
-        _rows_with_steps_removed({DEGRADED_CASE_ID: 1}),
-    )
-
-    changed_full_set = compare_runs(baseline_id, changed_run_id, SAMPLE_OUTPUT_PATH).full_set
-
-    assert changed_full_set is not None
-    assert changed_full_set.changed_case_count == 1
-    assert _outcome(changed_run_id) == "tie"
-
-    reformatted_run_id = record(_perfect_rows(), NO_USAGE, _rows_with_reformatted_steps())
-    reformatted_full_set = compare_runs(
-        baseline_id, reformatted_run_id, SAMPLE_OUTPUT_PATH
-    ).full_set
-
-    assert reformatted_full_set is not None
-    assert reformatted_full_set.changed_case_count == 0
+    assert _outcome(record(_perfect_rows(), NO_USAGE, run_full_rows())) == "tie"
 
 
 def test_cheaper_run_without_full_set_ties(record) -> None:
