@@ -30,7 +30,9 @@ def main(argv: list[str]) -> int:
     try:
         llm = ghost_audit.llm.connect(tracker)
         authorizations = asyncio.run(
-            ghost_audit.intent.route_intents(llm, (request["request_text"] for request in requests))
+            ghost_audit.intent.classify_intents(
+                llm, (request["request_text"] for request in requests)
+            )
         )
     except ghost_audit.llm.LLMError as error:
         sys.stderr.write(f"intent routing failed: {error}\n")
@@ -63,7 +65,6 @@ def _write_output(
 
 
 def _audit_deletion_request(_request: dict[str, str]) -> tuple[str, str]:
-    """Return the temporary audit result until the audit implementation lands."""
     return "NOT_APPLICABLE", "[]"
 
 

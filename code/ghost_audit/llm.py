@@ -24,6 +24,7 @@ GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
 API_KEY_ENV = "AI_GATEWAY_API_KEY"
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_CACHE_DIR = REPO_ROOT / ".cache" / "llm"
+CONCURRENCY_LIMIT = 8
 
 Sleep = Callable[[float], Awaitable[None]]
 
@@ -60,16 +61,7 @@ class GatewayTransport:
     """Use Vercel AI Gateway through the OpenAI SDK."""
 
     def __init__(self) -> None:
-        api_key = os.environ.get(API_KEY_ENV)
-        if api_key is None:
-            message = f"{API_KEY_ENV} is not set"
-            raise LLMError(message)
-        self._client = openai.AsyncOpenAI(
-            base_url=GATEWAY_BASE_URL,
-            api_key=api_key,
-            max_retries=0,
-            timeout=60.0,
-        )
+        self._client: openai.AsyncOpenAI | None = None
 
     async def complete(
         self,
@@ -91,20 +83,36 @@ class GatewayTransport:
                 },
             },
         )
-        response = await self._client.chat.completions.create(
+        response = await self._connected_client().chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
             ],
             response_format=response_format,
+            temperature=0,
         )
         usage = response.usage
         return Completion(
-            text=response.choices[0].message.content or "",
+            text=(response.choices[0].message.content or "") if response.choices else "",
             input_tokens=usage.prompt_tokens if usage else 0,
             output_tokens=usage.completion_tokens if usage else 0,
         )
+
+    def _connected_client(self) -> openai.AsyncOpenAI:
+        if self._client is not None:
+            return self._client
+        api_key = os.environ.get(API_KEY_ENV)
+        if api_key is None:
+            message = f"{API_KEY_ENV} is not set"
+            raise LLMError(message)
+        self._client = openai.AsyncOpenAI(
+            base_url=GATEWAY_BASE_URL,
+            api_key=api_key,
+            max_retries=0,
+            timeout=60.0,
+        )
+        return self._client
 
 
 class StructuredLLM:
@@ -113,16 +121,15 @@ class StructuredLLM:
     def __init__(
         self,
         transport: Transport,
-        usage: UsageTracker,
+        usage_tracker: UsageTracker,
         cache_dir: pathlib.Path,
-        concurrency_limit: int = 8,
         max_attempts: int = 4,
         sleep: Sleep = asyncio.sleep,
     ) -> None:
         self._transport = transport
-        self._usage = usage
+        self._usage_tracker = usage_tracker
         self._cache_dir = cache_dir
-        self._semaphore = asyncio.Semaphore(concurrency_limit)
+        self._semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
         self._max_attempts = max_attempts
         self._sleep = sleep
 
@@ -154,7 +161,7 @@ class StructuredLLM:
                         response_type.__name__,
                         schema,
                     )
-                self._usage.record(
+                self._usage_tracker.record(
                     provider,
                     model_name,
                     completion.input_tokens,
@@ -169,7 +176,7 @@ class StructuredLLM:
                 last_error = error
             except ValidationError as error:
                 last_error = error
-            except Exception as error:
+            except openai.APIError as error:
                 message = f"LLM request failed: {error!r}"
                 raise LLMError(message) from error
             else:
@@ -210,6 +217,6 @@ class StructuredLLM:
         temporary_path.replace(cache_path)
 
 
-def connect(usage: UsageTracker) -> StructuredLLM:
+def connect(usage_tracker: UsageTracker) -> StructuredLLM:
     """Create the production LLM client."""
-    return StructuredLLM(GatewayTransport(), usage, DEFAULT_CACHE_DIR)
+    return StructuredLLM(GatewayTransport(), usage_tracker, DEFAULT_CACHE_DIR)

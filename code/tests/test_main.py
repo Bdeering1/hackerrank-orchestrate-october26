@@ -12,31 +12,16 @@ from evaluation.validate import data_rows, validation_errors
 from ghost_audit.__main__ import main
 from ghost_audit.llm import Completion, StructuredLLM
 from ghost_audit.usage import UsageTracker
-from tests.conftest import FakeIntentTransport
 
 REQUESTS_PATH = Path(__file__).resolve().parents[2] / "dataset" / "sample_deletion_requests.csv"
 
 
-def test_main_writes_placeholder_output(tmp_path: Path) -> None:
+def test_main_writes_valid_output_for_samples(tmp_path: Path) -> None:
     output_path = tmp_path / "output.csv"
-    usage_path = tmp_path / "usage.json"
 
-    assert (
-        main(
-            [
-                "--requests",
-                str(REQUESTS_PATH),
-                "--output",
-                str(output_path),
-                "--usage",
-                str(usage_path),
-            ]
-        )
-        == 0
-    )
+    assert main(["--requests", str(REQUESTS_PATH), "--output", str(output_path)]) == 0
 
     assert validation_errors(output_path, [row[0] for row in data_rows(REQUESTS_PATH)]) == []
-    assert json.loads(usage_path.read_text(encoding="utf-8"))["models"][0]["calls"] > 0
 
 
 def test_main_routes_non_deletion_and_deletion_requests(
@@ -66,26 +51,7 @@ def test_main_routes_non_deletion_and_deletion_requests(
     ]
 
 
-def test_main_deduplicates_intent_calls(
-    tmp_path: Path, intent_transports: list[FakeIntentTransport]
-) -> None:
-    requests_path = tmp_path / "requests.csv"
-    output_path = tmp_path / "output.csv"
-    _write_requests(
-        requests_path,
-        [
-            ("case_01", "Please delete my account"),
-            ("case_02", "Please delete my account"),
-        ],
-    )
-
-    assert main(["--requests", str(requests_path), "--output", str(output_path)]) == 0
-
-    assert len(intent_transports) == 1
-    assert len(intent_transports[0].calls) == 1
-
-
-def test_main_writes_intent_usage(tmp_path: Path) -> None:
+def test_main_writes_usage_for_one_call_per_distinct_text(tmp_path: Path) -> None:
     requests_path = tmp_path / "requests.csv"
     output_path = tmp_path / "output.csv"
     usage_path = tmp_path / "usage.json"
@@ -94,6 +60,7 @@ def test_main_writes_intent_usage(tmp_path: Path) -> None:
         [
             ("case_01", "Please delete my account"),
             ("case_02", "NO_DELETE send me a copy"),
+            ("case_03", "Please delete my account"),
         ],
     )
 
@@ -132,10 +99,10 @@ def test_main_keeps_existing_output_when_intent_routing_fails(
     _write_requests(requests_path, [("case_01", "Please delete my account")])
     output_path.write_text("previous output", encoding="utf-8")
 
-    def connect(usage: UsageTracker) -> StructuredLLM:
+    def connect(usage_tracker: UsageTracker) -> StructuredLLM:
         return StructuredLLM(
             AlwaysFailingTransport(),
-            usage,
+            usage_tracker,
             tmp_path / "llm-cache",
             max_attempts=1,
         )
@@ -148,8 +115,6 @@ def test_main_keeps_existing_output_when_intent_routing_fails(
 
 
 class AlwaysFailingTransport:
-    """Raise a transient gateway failure for every request."""
-
     async def complete(
         self,
         model: str,

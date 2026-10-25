@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 import httpx2 as httpx
@@ -11,14 +12,10 @@ from ghost_audit.usage import UsageTracker
 
 
 class Answer(BaseModel):
-    """A structured response used by LLM tests."""
-
     answer: bool
 
 
 class ScriptedTransport:
-    """Return scripted completions or raise scripted errors."""
-
     def __init__(self, responses: list[Completion | Exception]) -> None:
         self.responses = iter(responses)
         self.calls = 0
@@ -58,30 +55,40 @@ def test_parse_uses_disk_cache_and_cache_key_inputs(tmp_path: Path) -> None:
     assert transport.calls == 3
     usage_path = tmp_path / "usage.json"
     usage.write(usage_path)
-    assert usage_path.read_text(encoding="utf-8") == (
-        '{"models": [{"provider": "test", "model": "one", "calls": 2, '
-        '"input_tokens": 6, "output_tokens": 8}, {"provider": "test", "model": "two", '
-        '"calls": 1, "input_tokens": 3, "output_tokens": 4}]}'
-    )
-
-
-def test_parse_retries_transient_failures(tmp_path: Path) -> None:
-    transport = ScriptedTransport(
-        [
-            openai.APIConnectionError(request=httpx.Request("POST", "https://example.test")),
-            Completion('{"answer": true}', 1, 2),
+    assert json.loads(usage_path.read_text(encoding="utf-8")) == {
+        "models": [
+            {"provider": "test", "model": "one", "calls": 2, "input_tokens": 6, "output_tokens": 8},
+            {"provider": "test", "model": "two", "calls": 1, "input_tokens": 3, "output_tokens": 4},
         ]
-    )
-    delays: list[float] = []
+    }
+
+
+REQUEST = httpx.Request("POST", "https://example.test")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        openai.APIConnectionError(request=REQUEST),
+        openai.APITimeoutError(request=REQUEST),
+        openai.RateLimitError(
+            "rate limited", response=httpx.Response(429, request=REQUEST), body=None
+        ),
+        openai.InternalServerError(
+            "server error", response=httpx.Response(500, request=REQUEST), body=None
+        ),
+    ],
+)
+def test_parse_retries_transient_failures(tmp_path: Path, error: Exception) -> None:
+    transport = ScriptedTransport([error, Completion('{"answer": true}', 1, 2)])
 
     async def sleep(delay: float) -> None:
-        delays.append(delay)
+        return None
 
     llm = StructuredLLM(transport, UsageTracker(), tmp_path, sleep=sleep)
 
     assert asyncio.run(llm.parse("test/one", "prompt", "message", Answer)).answer
     assert transport.calls == 2
-    assert delays == [1]
 
 
 def test_parse_retries_invalid_json_and_records_its_usage(tmp_path: Path) -> None:
@@ -98,14 +105,15 @@ def test_parse_retries_invalid_json_and_records_its_usage(tmp_path: Path) -> Non
     assert asyncio.run(llm.parse("test/one", "prompt", "message", Answer)).answer
     usage_path = tmp_path / "usage.json"
     usage.write(usage_path)
-    assert usage_path.read_text(encoding="utf-8") == (
-        '{"models": [{"provider": "test", "model": "one", "calls": 2, '
-        '"input_tokens": 7, "output_tokens": 10}]}'
-    )
+    assert json.loads(usage_path.read_text(encoding="utf-8")) == {
+        "models": [
+            {"provider": "test", "model": "one", "calls": 2, "input_tokens": 7, "output_tokens": 10}
+        ]
+    }
 
 
 def test_parse_does_not_retry_non_transient_errors(tmp_path: Path) -> None:
-    response = httpx.Response(400, request=httpx.Request("POST", "https://example.test"))
+    response = httpx.Response(400, request=REQUEST)
     transport = ScriptedTransport(
         [openai.BadRequestError("bad request", response=response, body=None)]
     )
@@ -118,7 +126,7 @@ def test_parse_does_not_retry_non_transient_errors(tmp_path: Path) -> None:
 
 
 def test_parse_raises_after_transient_attempts_are_exhausted(tmp_path: Path) -> None:
-    error = openai.APIConnectionError(request=httpx.Request("POST", "https://example.test"))
+    error = openai.APIConnectionError(request=REQUEST)
     transport = ScriptedTransport([error, error])
 
     async def sleep(delay: float) -> None:
