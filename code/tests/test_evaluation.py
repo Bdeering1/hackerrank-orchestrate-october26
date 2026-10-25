@@ -145,6 +145,7 @@ def test_main_runs_placeholder_agent(capsys: pytest.CaptureFixture[str]) -> None
 
     captured = capsys.readouterr()
     assert "status accuracy:" in captured.out
+    assert "usage:" in captured.out
 
 
 def test_usage_summary_calculates_model_and_overall_costs(tmp_path: Path) -> None:

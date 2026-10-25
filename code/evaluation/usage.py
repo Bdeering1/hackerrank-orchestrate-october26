@@ -43,7 +43,7 @@ class UsageTotals:
 
 
 @dataclasses.dataclass(frozen=True)
-class ModelCost:
+class ModelUsageSummary:
     """Usage and estimated cost for a model."""
 
     provider: str
@@ -55,7 +55,7 @@ class ModelCost:
 class UsageSummary:
     """Per-model and overall usage totals."""
 
-    models: tuple[ModelCost, ...]
+    models: tuple[ModelUsageSummary, ...]
     overall: UsageTotals
 
 
@@ -64,7 +64,9 @@ def usage_summary(usage_path: pathlib.Path, request_count: int) -> UsageSummary:
     usage = typing.cast(
         "dict[str, list[ModelUsage]]", json.loads(usage_path.read_text(encoding="utf-8"))
     )
-    models = tuple(_model_cost(model_usage, request_count) for model_usage in usage["models"])
+    models = tuple(
+        _model_usage_summary(model_usage, request_count) for model_usage in usage["models"]
+    )
     overall = UsageTotals(
         calls=sum(model.totals.calls for model in models),
         input_tokens=sum(model.totals.input_tokens for model in models),
@@ -86,7 +88,7 @@ def format_usage_summary(summary: UsageSummary) -> str:
     return "\n".join(rows)
 
 
-def _model_cost(model_usage: ModelUsage, request_count: int) -> ModelCost:
+def _model_usage_summary(model_usage: ModelUsage, request_count: int) -> ModelUsageSummary:
     model = model_usage["model"]
     try:
         input_rate, output_rate = MODEL_PRICES[model]
@@ -101,7 +103,7 @@ def _model_cost(model_usage: ModelUsage, request_count: int) -> ModelCost:
         estimated_cost_usd=(input_tokens * input_rate + output_tokens * output_rate) / 1_000_000,
         request_count=request_count,
     )
-    return ModelCost(provider=model_usage["provider"], model=model, totals=totals)
+    return ModelUsageSummary(provider=model_usage["provider"], model=model, totals=totals)
 
 
 def _usage_row(provider: str, model: str, totals: UsageTotals) -> str:

@@ -6,11 +6,11 @@ import pathlib
 import sys
 
 import ghost_audit.usage
+from ghost_audit.output_format import HEADER, case_number
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_REQUESTS_PATH = REPO_ROOT / "dataset" / "deletion_requests.csv"
 DEFAULT_OUTPUT_PATH = REPO_ROOT / "output.csv"
-HEADER = ("case_id", "deletion_status", "steps_json")
 
 
 def main(argv: list[str]) -> int:
@@ -38,14 +38,6 @@ def _write_placeholder_output(requests_path: pathlib.Path, output_path: pathlib.
         writer = csv.writer(output_file)
         writer.writerow(HEADER)
         writer.writerows((case_id, "NOT_APPLICABLE", "[]") for case_id in case_ids)
-
-
-def case_number(case_id: str) -> int:
-    """Return the numeric portion of a well-formed case ID."""
-    suffix = case_id.removeprefix("case_")
-    if suffix == case_id or not suffix.isdecimal():
-        raise ValueError
-    return int(suffix)
 
 
 class _Arguments(argparse.Namespace):

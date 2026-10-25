@@ -4,7 +4,7 @@ import csv
 import json
 import typing
 
-from ghost_audit.__main__ import HEADER, case_number
+from ghost_audit.output_format import HEADER, case_number
 
 if typing.TYPE_CHECKING:
     from collections.abc import Collection
