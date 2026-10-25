@@ -2,7 +2,8 @@
 
 Audits every request in `dataset/deletion_requests.csv` and writes `output.csv` at the
 repository root. One LLM call per distinct request text decides whether the person asked for
-deletion. The rest is deterministic Python.
+deletion, and a short tool-calling loop per PDF or screenshot extracts the records it shows.
+The rest is deterministic Python.
 
 ## Setup
 
@@ -14,7 +15,7 @@ cd code
 uv sync
 ```
 
-Intent routing calls Claude Haiku 5.5 through Vercel AI Gateway. Add the key to `.env` at
+Intent routing and evidence extraction call Claude Haiku 5.5 through Vercel AI Gateway. Add the key to `.env` at
 the repository root:
 
 ```text
@@ -50,7 +51,9 @@ uv run python -m evaluation.main validate
    records turn each file into observations and coverages. An observation is one record's
    state in one file. A coverage is a snapshot that lists every record of a system copy, so
    a record missing from it is absent. Replica tables in topology snapshots count as
-   separate copies.
+   separate copies. For PDFs and screenshots (`extraction.py`), Haiku reads PDF pages
+   through a `read_page` tool or sees the image, then submits records. Code checks each
+   submission and returns errors for the model to fix, for up to 6 turns per file.
 4. **Linking** (`audit.py`). The audit includes a resource when an observation carrying one
    of the subject's identifiers, or a `LINK_RESOURCE_IDENTITY` activity row, ties it to them
    at or before `audit_at`. It drops links older than the subject's previous deletion audit.
@@ -101,7 +104,8 @@ pytest-socket blocks network access.
 
 ## Known gaps
 
-- The agent does not read PDFs or screenshots, so it misses facts that appear only there.
+- Extraction can pick the wrong category. In sample case_07 it labels an attachment PDF as a
+  support message, so the record gets redacted instead of deleted.
 - Cache entries and email-delivery logs produce no steps. Their activity rows carry no
   subject identifier.
 - A deletion request with no linked resource gets `NOT_APPLICABLE`, because the validator
