@@ -44,7 +44,7 @@ EVIDENCE_FILES_PATH = DATASET_DIR / "evidence_files.csv"
 SYSTEM_ACTIVITY_PATH = DATASET_DIR / "system_activity.csv"
 AUDIT_LOG_PATH = DATASET_DIR / "user_audit_log.csv"
 NOISE_RUNS = 8
-COMPOSITE_PRECISION_DIGITS = 6
+FLOAT_ERROR_GUARD_DIGITS = 6
 
 
 @dataclass(frozen=True)
@@ -133,7 +133,7 @@ def _measure_noise(*, is_full_set: bool) -> int:
         directory = Path(temporary_directory)
         suite = write_suite(directory, is_holdout=False)
         suite_audit_times = audit_times(suite.requests_path)
-        full_audit_times = audit_times(FULL_REQUESTS_PATH)
+        full_audit_times = audit_times(FULL_REQUESTS_PATH) if is_full_set else {}
         composites: list[float] = []
         full_set_rows: list[CaseRows] = []
         total_cost_usd = 0.0
@@ -163,7 +163,7 @@ def _measure_noise(*, is_full_set: bool) -> int:
             total_cost_usd += _estimated_cost_usd(full_usage_path, len(full_audit_times))
 
     score_range = max(composites) - min(composites)
-    rounded_range = math.ceil(round(score_range * 10, COMPOSITE_PRECISION_DIGITS)) / 10
+    rounded_range = math.ceil(round(score_range * 10, FLOAT_ERROR_GUARD_DIGITS)) / 10
     sys.stdout.write(f"range: {score_range:.3f} points\n")
     sys.stdout.write(f"noise floor: {rounded_range:.1f}\n")
     if is_full_set:
