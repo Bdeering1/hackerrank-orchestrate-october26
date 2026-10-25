@@ -151,9 +151,9 @@ def test_main_runs_placeholder_agent(capsys: pytest.CaptureFixture[str]) -> None
 def test_usage_summary_calculates_model_and_overall_costs(tmp_path: Path) -> None:
     usage_path = tmp_path / "usage.json"
     tracker = UsageTracker()
-    tracker.record("anthropic", "claude-opus-5-5", 750_000, 400_000)
-    tracker.record("anthropic", "claude-sonnet-5-5", 500_000, 1_000_000)
-    tracker.record("anthropic", "claude-opus-5-5", 250_000, 100_000)
+    tracker.record("anthropic", "claude-opus-5.5", 750_000, 400_000)
+    tracker.record("anthropic", "claude-sonnet-5.5", 500_000, 1_000_000)
+    tracker.record("anthropic", "claude-opus-5.5", 250_000, 100_000)
     tracker.write(usage_path)
 
     summary = usage_summary(usage_path, request_count=10)
