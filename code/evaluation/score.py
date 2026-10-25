@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import typing
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 
 from evaluation.validate import Step, data_rows
@@ -22,21 +22,23 @@ class MetricDefinition:
 
 
 METRICS = (
-    MetricDefinition("Status", 0.25, "Exact deletion-status match.", lambda score: score.status),
     MetricDefinition(
-        "Step", 0.35, "Multiset F1 over steps, ignoring step_no.", lambda score: score.step
+        "Status", 0.25, "Exact deletion-status match.", lambda score: score.status_match
+    ),
+    MetricDefinition(
+        "Step", 0.35, "Multiset F1 over steps, ignoring step_no.", lambda score: score.step_f1
     ),
     MetricDefinition(
         "Field",
         0.30,
         "Operation, state, and evidence agreement for steps aligned by phase, system, and resource.",
-        lambda score: score.field,
+        lambda score: score.field_accuracy,
     ),
     MetricDefinition(
         "Sequence",
         0.10,
         "1 minus the step edit distance, divided by the longer step list's length.",
-        lambda score: score.sequence,
+        lambda score: score.sequence_similarity,
     ),
 )
 
@@ -46,10 +48,10 @@ class CaseScore:
     case_id: str
     expected_status: str
     predicted_status: str | None
-    status: float
-    step: float
-    field: float
-    sequence: float
+    status_match: float
+    step_f1: float
+    field_accuracy: float
+    sequence_similarity: float
 
     @property
     def composite(self) -> float:
@@ -58,7 +60,10 @@ class CaseScore:
 
 
 def case_scores(predictions_path: Path, labels_path: Path) -> list[CaseScore]:
-    """Return weighted scores for every labelled case in numeric case order."""
+    """Return weighted scores for every labelled case in numeric case order.
+
+    Predictions must already pass validation.
+    """
     predictions = _rows_by_case(predictions_path)
     labels = _rows_by_case(labels_path)
     scores: list[CaseScore] = []
@@ -86,7 +91,7 @@ def render_markdown(scores: Collection[CaseScore]) -> str:
     """Render scores as the evaluation report's Markdown section."""
     score_list = list(scores)
     average_composite = _mean(score.composite for score in score_list)
-    status_match_count = sum(score.status == 1 for score in score_list)
+    status_match_count = sum(score.status_match == 1 for score in score_list)
     lines = [
         "## Summary",
         "",
@@ -111,7 +116,7 @@ def render_markdown(scores: Collection[CaseScore]) -> str:
         ]
     )
     lines.extend(
-        f"| {score.case_id} | {score.expected_status} | {score.predicted_status or ''} | {score.step:.1%} | {score.field:.1%} | {score.sequence:.1%} | {score.composite:.1f}% |"
+        f"| {score.case_id} | {score.expected_status} | {score.predicted_status or ''} | {score.step_f1:.1%} | {score.field_accuracy:.1%} | {score.sequence_similarity:.1%} | {score.composite:.1f}% |"
         for score in score_list
     )
     return "\n".join(lines) + "\n"
@@ -140,20 +145,20 @@ def _step_f1(predicted_steps: list[Step], expected_steps: list[Step]) -> float:
 def _field_score(predicted_steps: list[Step], expected_steps: list[Step]) -> float:
     if not predicted_steps and not expected_steps:
         return 1.0
-    predicted_by_key = _first_steps_by_key(predicted_steps)
-    expected_by_key = _first_steps_by_key(expected_steps)
-    aligned_keys = predicted_by_key.keys() & expected_by_key.keys()
+    predicted_by_key = _steps_by_key(predicted_steps)
+    expected_by_key = _steps_by_key(expected_steps)
+    aligned_pairs = [
+        aligned_pair
+        for key in predicted_by_key.keys() & expected_by_key.keys()
+        for aligned_pair in zip(predicted_by_key[key], expected_by_key[key], strict=False)
+    ]
     matching_fields = sum(
-        predicted_by_key[key][field] == expected_by_key[key][field]
-        for key in aligned_keys
+        predicted_step[field] == expected_step[field]
+        for predicted_step, expected_step in aligned_pairs
         for field in ("operation", "state", "evidence_id")
     )
-    denominator = 3 * (
-        len(aligned_keys)
-        + len(expected_by_key.keys() - predicted_by_key.keys())
-        + len(predicted_by_key.keys() - expected_by_key.keys())
-    )
-    return matching_fields / denominator
+    unaligned_count = len(predicted_steps) + len(expected_steps) - 2 * len(aligned_pairs)
+    return matching_fields / (3 * (len(aligned_pairs) + unaligned_count))
 
 
 def _sequence_score(predicted_steps: list[Step], expected_steps: list[Step]) -> float:
@@ -193,12 +198,11 @@ def _step_content(step: Step) -> tuple[str, str, str, str, str, str]:
     )
 
 
-def _first_steps_by_key(steps: list[Step]) -> dict[tuple[str, str, str], Step]:
-    first_steps: dict[tuple[str, str, str], Step] = {}
+def _steps_by_key(steps: list[Step]) -> dict[tuple[str, str, str], list[Step]]:
+    steps_by_key: defaultdict[tuple[str, str, str], list[Step]] = defaultdict(list)
     for step in steps:
-        key = (step["phase"], step["system_id"], step["resource_id"])
-        first_steps.setdefault(key, step)
-    return first_steps
+        steps_by_key[(step["phase"], step["system_id"], step["resource_id"])].append(step)
+    return steps_by_key
 
 
 def _mean(values: Iterable[float]) -> float:

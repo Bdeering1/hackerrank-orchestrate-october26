@@ -323,25 +323,36 @@ def _score_rows(status: str, steps: list[dict[str, object]]) -> CsvRows:
 @pytest.mark.parametrize(
     ("status", "steps", "metric", "expected_value"),
     [
-        pytest.param("INCOMPLETE", [FIRST_EXPECTED_STEP], "status", 0.0, id="status"),
+        pytest.param("INCOMPLETE", [FIRST_EXPECTED_STEP], "status_match", 0.0, id="status"),
         pytest.param(
             "COMPLETE",
             [{**FIRST_EXPECTED_STEP, "operation": "VERIFY_RECORD_PRESENT"}],
-            "step",
+            "step_f1",
             0.0,
             id="step",
         ),
         pytest.param(
             "COMPLETE",
             [{**FIRST_EXPECTED_STEP, "evidence_id": "evidence_02"}],
-            "field",
+            "field_accuracy",
             pytest.approx(1 / 3),
             id="field",
         ),
         pytest.param(
             "COMPLETE",
+            [
+                FIRST_EXPECTED_STEP,
+                {**FIRST_EXPECTED_STEP, "step_no": 2, "operation": "VERIFY_RECORD_PRESENT"},
+                {**SECOND_EXPECTED_STEP, "step_no": 3},
+            ],
+            "field_accuracy",
+            pytest.approx(2 / 3),
+            id="field-duplicate-key",
+        ),
+        pytest.param(
+            "COMPLETE",
             [{**SECOND_EXPECTED_STEP, "step_no": 1}],
-            "sequence",
+            "sequence_similarity",
             0.5,
             id="sequence",
         ),
@@ -367,20 +378,23 @@ def test_case_scores_partial_metrics(
     assert getattr(score, metric) == expected_value
 
 
-def test_case_scores_missing_prediction_is_zero(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("prediction_rows", "expected_composite"),
+    [
+        pytest.param(_score_rows("NOT_APPLICABLE", []), 100.0, id="match"),
+        pytest.param([["case_id", "deletion_status", "steps_json"]], 0.0, id="missing"),
+    ],
+)
+def test_case_scores_not_applicable_label(
+    tmp_path: Path, prediction_rows: CsvRows, expected_composite: float
+) -> None:
     labels_path = tmp_path / "labels.csv"
     predictions_path = tmp_path / PREDICTIONS_FILENAME
     _write_rows(labels_path, _score_rows("NOT_APPLICABLE", []))
-    _write_rows(predictions_path, [["case_id", "deletion_status", "steps_json"]])
+    _write_rows(predictions_path, prediction_rows)
 
-    score = case_scores(predictions_path, labels_path)[0]
-
-    assert (score.status, score.step, score.field, score.sequence, score.composite) == (
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
+    assert case_scores(predictions_path, labels_path)[0].composite == pytest.approx(
+        expected_composite
     )
 
 

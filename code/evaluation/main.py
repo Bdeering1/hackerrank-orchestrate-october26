@@ -49,7 +49,7 @@ def main(argv: list[str]) -> int:
 
 def _score_predictions(predictions_path: Path, usage_path: Path | None = None) -> int:
     """Validate predictions and render weighted sample scores."""
-    audit_times = _audit_times()
+    audit_times = _times_from(REQUESTS_PATH, 5)
     errors = validation_errors(predictions_path, audit_times, _evidence_times())
     if errors:
         sys.stderr.write("validation failed:\n")
@@ -62,10 +62,6 @@ def _score_predictions(predictions_path: Path, usage_path: Path | None = None) -
         summary = usage_summary(usage_path, len(audit_times))
         sys.stdout.write(f"{format_usage_summary(summary)}\n")
     return 0
-
-
-def _audit_times() -> dict[str, datetime]:
-    return {row[0]: datetime.fromisoformat(row[5]) for row in data_rows(REQUESTS_PATH)}
 
 
 def _evidence_times() -> dict[str, datetime]:
