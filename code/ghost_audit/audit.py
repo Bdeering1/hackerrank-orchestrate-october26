@@ -5,12 +5,17 @@ import typing
 from datetime import datetime
 
 from ghost_audit import identity
-from ghost_audit.model import ABSENT, Step
+from ghost_audit.model import ABSENT, ANONYMIZED, REDACTED, Step
 from ghost_audit.output_format import (
+    ANONYMIZE_RECORD,
     DELETE_RECORD,
     OPERATION_ORDER,
+    REDACT_RECORD,
+    REPORT_EXPOSED_PII,
     REPORT_REMAINING_RECORD,
     VERIFY_RECORD_ABSENT,
+    VERIFY_RECORD_ANONYMIZED,
+    VERIFY_RECORD_REDACTED,
     Operation,
 )
 
@@ -23,6 +28,7 @@ if typing.TYPE_CHECKING:
 COMPLETE = "COMPLETE"
 INCOMPLETE = "INCOMPLETE"
 NOT_APPLICABLE = "NOT_APPLICABLE"
+DELETE_ACTION = "DELETE"
 LINK_RESOURCE_IDENTITY = "LINK_RESOURCE_IDENTITY"
 
 type ResourceKey = tuple[str, str]
@@ -39,7 +45,11 @@ class PlanRule:
 
 
 PLAN_RULES = {
-    "DELETE": PlanRule(ABSENT, REPORT_REMAINING_RECORD, DELETE_RECORD, VERIFY_RECORD_ABSENT),
+    DELETE_ACTION: PlanRule(ABSENT, REPORT_REMAINING_RECORD, DELETE_RECORD, VERIFY_RECORD_ABSENT),
+    "REDACT": PlanRule(REDACTED, REPORT_EXPOSED_PII, REDACT_RECORD, VERIFY_RECORD_REDACTED),
+    "ANONYMIZE": PlanRule(
+        ANONYMIZED, REPORT_EXPOSED_PII, ANONYMIZE_RECORD, VERIFY_RECORD_ANONYMIZED
+    ),
 }
 
 
@@ -171,6 +181,9 @@ class Auditor:
             return None
         system, resource_id = key
         category = observations[0].category
+        action = self._dataset.required_actions[category]
+        if not any(observation.is_condition_met for observation in observations):
+            action = DELETE_ACTION
         proofs = [
             _Proof(
                 observation.copy,
@@ -181,18 +194,19 @@ class Auditor:
             )
             for observation in observations
         ]
-        proofs.extend(
-            _Proof(
-                coverage.copy,
-                ABSENT,
-                coverage.observed_at,
-                coverage.evidence_id,
-                is_observation=False,
+        if action == DELETE_ACTION:
+            proofs.extend(
+                _Proof(
+                    coverage.copy,
+                    ABSENT,
+                    coverage.observed_at,
+                    coverage.evidence_id,
+                    is_observation=False,
+                )
+                for coverage in self._coverages_by_scope.get((system, category), ())
+                if coverage.observed_at <= at and resource_id not in coverage.resource_ids
             )
-            for coverage in self._coverages_by_scope.get((system, category), ())
-            if coverage.observed_at <= at and resource_id not in coverage.resource_ids
-        )
-        return PLAN_RULES[self._dataset.required_actions[category]], proofs
+        return PLAN_RULES[action], proofs
 
 
 def _authorizes_deletion(_request_text: str) -> bool:

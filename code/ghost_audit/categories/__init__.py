@@ -5,6 +5,8 @@ import importlib
 import pkgutil
 import typing
 
+from ghost_audit.model import ANONYMIZED, PRESENT, REDACTED
+
 if typing.TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
@@ -20,6 +22,25 @@ class Category:
     record_types: frozenset[str]
     log_events: frozenset[str]
     existing_state: Callable[[Mapping[str, object]], str]
+    is_condition_met: Callable[[Mapping[str, object]], bool]
+
+
+def always_present_state(_record: Mapping[str, object]) -> str:
+    """Return the state for an observed record that must exist."""
+    return PRESENT
+
+
+def is_always_met(_record: Mapping[str, object]) -> bool:
+    """Return whether an unconditional rule applies."""
+    return True
+
+
+def state_from_result(record: Mapping[str, object]) -> str | None:
+    """Return the observed state represented by a result field."""
+    result = str(record.get("result", ""))
+    if not result:
+        return None
+    return result if result in {REDACTED, ANONYMIZED} else PRESENT
 
 
 def discovered_categories() -> tuple[Category, ...]:

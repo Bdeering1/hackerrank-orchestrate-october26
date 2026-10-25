@@ -1,0 +1,22 @@
+{
+  "snapshots": [
+    {
+      "captured_at": "2026-09-04T10:05:00Z",
+      "data_store": "support_platform",
+      "collection": "tickets",
+      "records": [
+        {
+          "resource_id": "support_2601",
+          "customer_reference": "user_26",
+          "message_text": "[REDACTED]"
+        }
+      ]
+    },
+    {
+      "captured_at": "2026-09-04T10:06:00Z",
+      "data_store": "support_platform",
+      "collection": "tickets",
+      "records": []
+    }
+  ]
+}
