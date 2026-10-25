@@ -1,14 +1,20 @@
 import csv
 import json
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
 
 from evaluation import runs
-from evaluation.main import main
-from evaluation.runs import PromotionRefusedError, compare_runs, promote_run, record_run
+from evaluation.main import main, write_suite
+from evaluation.runs import (
+    PromotionRefusedError,
+    compare_runs,
+    promote_run,
+    record_holdout_run,
+    record_run,
+)
 from evaluation.validate import csv_rows
 
 SAMPLE_OUTPUT_PATH = Path(__file__).resolve().parents[2] / "dataset" / "sample_output.csv"
@@ -29,17 +35,35 @@ SLIGHTLY_CHEAPER_USAGE = {"models": [{**EXPENSIVE_USAGE["models"][0], "input_tok
 DOUBLE_EXPENSIVE_USAGE = {"models": [{**EXPENSIVE_USAGE["models"][0], "input_tokens": 2_000_000}]}
 
 
-@pytest.fixture
-def record(tmp_path: Path):
+def _recorder(
+    tmp_path: Path, record_saved_run: Callable[[runs.RunFiles], str]
+) -> Callable[..., str]:
     def record_rows(rows: list[list[str]], usage: Mapping[str, object] = NO_USAGE) -> str:
         output_path = tmp_path / "output.csv"
         usage_path = tmp_path / "usage.json"
         with output_path.open("w", encoding="utf-8", newline="") as output_file:
             csv.writer(output_file).writerows(rows)
         usage_path.write_text(json.dumps(usage), encoding="utf-8")
-        return record_run(output_path, usage_path, SAMPLE_OUTPUT_PATH, "scores")
+        return record_saved_run(
+            runs.RunFiles(
+                output_path=output_path,
+                usage_path=usage_path,
+                labels_path=SAMPLE_OUTPUT_PATH,
+                scores_markdown="scores",
+            )
+        )
 
     return record_rows
+
+
+@pytest.fixture
+def record(tmp_path: Path):
+    return _recorder(tmp_path, record_run)
+
+
+@pytest.fixture
+def record_holdout(tmp_path: Path):
+    return _recorder(tmp_path, record_holdout_run)
 
 
 def _perfect_rows() -> list[list[str]]:
@@ -114,7 +138,7 @@ def test_cost_tiebreak_compares_cost_per_request(record) -> None:
     assert _outcome(record(rows, DOUBLE_EXPENSIVE_USAGE)) == "tie"
 
 
-def test_run_waits_for_the_baseline_lock(record) -> None:
+def test_run_waits_for_the_runs_lock(record) -> None:
     runs.RUNS_DIR.mkdir(parents=True)
     lock_path = runs.RUNS_DIR / runs.LOCK_FILENAME
     lock_path.touch()
@@ -218,7 +242,46 @@ def test_interactive_tie_prompts_for_promotion(
     assert _outcome(record(_perfect_rows())) == outcome
 
 
-def test_predictions_scoring_is_not_saved(runs_dir: Path) -> None:
-    assert main(["--predictions", str(SAMPLE_OUTPUT_PATH)]) == 0
+def test_predictions_scoring_is_not_saved(runs_dir: Path, tmp_path: Path) -> None:
+    labels_path = write_suite(tmp_path, is_holdout=False).labels_path
+
+    assert main(["--predictions", str(labels_path)]) == 0
 
     assert not runs_dir.exists()
+
+
+def test_holdout_runs_diff_against_previous_holdout_run(
+    record_holdout, capsys: pytest.CaptureFixture[str]
+) -> None:
+    first_run_id = record_holdout(_degraded_rows())
+    assert "No previous holdout run" in capsys.readouterr().out
+
+    second_run_id = record_holdout(_perfect_rows())
+    third_run_id = record_holdout(_perfect_rows())
+
+    second_dir = runs.RUNS_DIR / runs.HOLDOUT_DIRNAME / second_run_id
+    second_diff = (second_dir / runs.DIFF_FILENAME).read_text()
+    third_record = json.loads(
+        (runs.RUNS_DIR / runs.HOLDOUT_DIRNAME / third_run_id / runs.RUN_FILENAME).read_text()
+    )
+    assert f"previous holdout run {first_run_id}" in second_diff
+    assert f"| {DEGRADED_CASE_ID} |" in second_diff.split("### Fixed")[1]
+    assert third_record["previous_run_id"] == second_run_id
+    assert not (runs.RUNS_DIR / runs.BASELINE_FILENAME).exists()
+
+
+def test_promote_refuses_holdout_runs(record_holdout) -> None:
+    holdout_run_id = record_holdout(_perfect_rows())
+
+    with pytest.raises(PromotionRefusedError, match="holdout run"):
+        promote_run(holdout_run_id)
+
+
+def test_holdout_agent_runs_are_saved_as_holdout_runs(runs_dir: Path) -> None:
+    assert main(["--holdout"]) == 0
+    assert main(["--holdout"]) == 0
+
+    holdout_run_dirs = list((runs_dir / runs.HOLDOUT_DIRNAME).iterdir())
+    assert len(holdout_run_dirs) == 2
+    assert sum((run_dir / runs.DIFF_FILENAME).is_file() for run_dir in holdout_run_dirs) == 1
+    assert not (runs_dir / runs.BASELINE_FILENAME).exists()

@@ -1,21 +1,19 @@
 import csv
 import json
+import tempfile
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from evaluation.main import main
+from evaluation.main import FULL_REQUESTS_PATH, main, write_suite
 from evaluation.score import CaseScore, case_scores, pooled_composite
 from evaluation.usage import usage_summary
 from evaluation.validate import csv_rows, validation_errors
 from ghost_audit.__main__ import main as agent_main
 from ghost_audit.usage import UsageTracker
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SAMPLE_OUTPUT_PATH = REPO_ROOT / "dataset" / "sample_output.csv"
-FULL_REQUESTS_PATH = REPO_ROOT / "dataset" / "deletion_requests.csv"
 FIRST_CASE_ID = "case_01"
 MULTI_STEP_CASE_ID = "case_03"
 INCOMPLETE_CASE_ID = "case_05"
@@ -25,16 +23,24 @@ CsvRows = list[list[str]]
 RowsMutator = Callable[[CsvRows], CsvRows]
 
 
-def test_main_scores_sample_answers(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["--predictions", str(SAMPLE_OUTPUT_PATH)]) == 0
+@pytest.mark.parametrize("holdout_argv", [[], ["--holdout"]], ids=["default", "holdout"])
+def test_main_scores_suite_answers(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path, holdout_argv: list[str]
+) -> None:
+    rows = _suite_label_rows(is_holdout=bool(holdout_argv))
+    predictions_path = tmp_path / PREDICTIONS_FILENAME
+    _write_rows(predictions_path, rows)
+
+    assert main([*holdout_argv, "--predictions", str(predictions_path)]) == 0
 
     captured = capsys.readouterr()
+    case_count = len(rows) - 1
     assert "Composite: 100.0%" in captured.out
-    assert "Status matches: 32/32" in captured.out
+    assert f"Status matches: {case_count}/{case_count}" in captured.out
 
 
 def test_main_reports_status_mismatch(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
-    rows = _sample_output_rows()
+    rows = _suite_label_rows()
     rows[1][1] = "NOT_APPLICABLE"
     rows[1][2] = "[]"
     predictions_path = tmp_path / PREDICTIONS_FILENAME
@@ -43,11 +49,13 @@ def test_main_reports_status_mismatch(capsys: pytest.CaptureFixture[str], tmp_pa
     assert main(["--predictions", str(predictions_path)]) == 0
 
     captured = capsys.readouterr()
-    assert "Status matches: 31/32" in captured.out
+    case_count = len(rows) - 1
+    assert f"Status matches: {case_count - 1}/{case_count}" in captured.out
 
 
-def _sample_output_rows() -> CsvRows:
-    return csv_rows(SAMPLE_OUTPUT_PATH)
+def _suite_label_rows(*, is_holdout: bool = False) -> CsvRows:
+    with tempfile.TemporaryDirectory() as suite_dir:
+        return csv_rows(write_suite(Path(suite_dir), is_holdout=is_holdout).labels_path)
 
 
 def _write_rows(path: Path, rows: CsvRows) -> None:
@@ -78,8 +86,8 @@ def _update_step(
     return _set_steps(rows, case_id, steps)
 
 
-def _without_last_row(rows: CsvRows) -> CsvRows:
-    return rows[:-1]
+def _without_first_case(rows: CsvRows) -> CsvRows:
+    return [rows[0], *rows[2:]]
 
 
 def _with_duplicate_row(rows: CsvRows) -> CsvRows:
@@ -87,7 +95,7 @@ def _with_duplicate_row(rows: CsvRows) -> CsvRows:
 
 
 def _with_out_of_order_rows(rows: CsvRows) -> CsvRows:
-    rows[9], rows[10] = rows[10], rows[9]
+    rows[1], rows[2] = rows[2], rows[1]
     return rows
 
 
@@ -193,12 +201,14 @@ def _with_late_evidence(rows: CsvRows) -> CsvRows:
 @pytest.mark.parametrize(
     ("mutate_rows", "expected_problem"),
     [
-        pytest.param(_without_last_row, "missing case_id: case_32", id="missing-case"),
+        pytest.param(_without_first_case, f"missing case_id: {FIRST_CASE_ID}", id="missing-case"),
         pytest.param(
             _with_duplicate_row, f"({FIRST_CASE_ID}): duplicate case_id", id="duplicate-case"
         ),
         pytest.param(_with_extra_row, "(case_33): unexpected case_id", id="extra-case"),
-        pytest.param(_with_out_of_order_rows, "(case_09): rows are not sorted", id="out-of-order"),
+        pytest.param(
+            _with_out_of_order_rows, f"({FIRST_CASE_ID}): rows are not sorted", id="out-of-order"
+        ),
         pytest.param(
             _with_invalid_status, f"({FIRST_CASE_ID}): invalid deletion_status", id="invalid-status"
         ),
@@ -259,7 +269,7 @@ def test_main_reports_validation_errors(
     expected_problem: str,
 ) -> None:
     predictions_path = tmp_path / PREDICTIONS_FILENAME
-    _write_rows(predictions_path, mutate_rows(_sample_output_rows()))
+    _write_rows(predictions_path, mutate_rows(_suite_label_rows()))
 
     assert main(["--predictions", str(predictions_path)]) == 1
 
@@ -278,7 +288,7 @@ def test_main_reports_unreadable_file(tmp_path: Path, capsys: pytest.CaptureFixt
 
 
 def test_validation_uses_numeric_case_order(tmp_path: Path) -> None:
-    rows = _sample_output_rows()
+    rows = _suite_label_rows()
     predictions_path = tmp_path / PREDICTIONS_FILENAME
     rows = [rows[0], ["case_99", *rows[1][1:]], ["case_100", *rows[2][1:]]]
     _write_rows(predictions_path, rows)
@@ -503,7 +513,7 @@ def test_validate_reports_missing_case(
 ) -> None:
     rows = csv_rows(full_set_output_path)
     missing_case_id = rows[-1][0]
-    _write_rows(full_set_output_path, _without_last_row(rows))
+    _write_rows(full_set_output_path, rows[:-1])
 
     assert main(["validate", str(full_set_output_path)]) == 1
 
