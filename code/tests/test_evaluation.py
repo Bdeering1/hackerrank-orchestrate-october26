@@ -1,10 +1,13 @@
 import csv
+import json
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
 from evaluation.main import main
+from evaluation.score import case_scores
 from evaluation.validate import csv_rows, validation_errors
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -19,21 +22,22 @@ def test_main_scores_sample_answers(capsys: pytest.CaptureFixture[str]) -> None:
     assert main([]) == 0
 
     captured = capsys.readouterr()
-    assert "32/32" in captured.out
-    assert "100.0%" in captured.out
+    assert "Average composite: 100.0%" in captured.out
+    assert "Status matches: 32/32" in captured.out
 
 
 def test_main_reports_status_mismatch(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
     rows = _sample_output_rows()
-    rows[1][1] = "INCOMPLETE"
+    rows[1][1] = "NOT_APPLICABLE"
+    rows[1][2] = "[]"
     predictions_path = tmp_path / PREDICTIONS_FILENAME
     _write_rows(predictions_path, rows)
 
     assert main(["--predictions", str(predictions_path)]) == 0
 
     captured = capsys.readouterr()
-    assert "31/32" in captured.out
-    assert "100.0%" not in captured.out
+    assert "Status matches: 31/32" in captured.out
+    assert "Average composite: 100.0%" not in captured.out
 
 
 def _sample_output_rows() -> CsvRows:
@@ -43,6 +47,29 @@ def _sample_output_rows() -> CsvRows:
 def _write_rows(path: Path, rows: CsvRows) -> None:
     with path.open("w", encoding="utf-8", newline="") as predictions_file:
         csv.writer(predictions_file).writerows(rows)
+
+
+def _case_row(rows: CsvRows, case_id: str) -> list[str]:
+    return next(row for row in rows[1:] if row[0] == case_id)
+
+
+def _steps(rows: CsvRows, case_id: str) -> list[dict[str, object]]:
+    steps = json.loads(_case_row(rows, case_id)[2])
+    assert isinstance(steps, list)
+    return steps
+
+
+def _set_steps(rows: CsvRows, case_id: str, steps: list[dict[str, object]]) -> CsvRows:
+    _case_row(rows, case_id)[2] = json.dumps(steps)
+    return rows
+
+
+def _update_step(
+    rows: CsvRows, case_id: str, step_index: int, updates: dict[str, object]
+) -> CsvRows:
+    steps = _steps(rows, case_id)
+    steps[step_index].update(updates)
+    return _set_steps(rows, case_id, steps)
 
 
 def _without_last_row(rows: CsvRows) -> CsvRows:
@@ -77,6 +104,90 @@ def _with_wrong_header(rows: CsvRows) -> CsvRows:
     return rows
 
 
+def _with_extra_step_key(rows: CsvRows) -> CsvRows:
+    return _update_step(rows, FIRST_CASE_ID, 0, {"extra": "value"})
+
+
+def _with_missing_step_key(rows: CsvRows) -> CsvRows:
+    steps = _steps(rows, FIRST_CASE_ID)
+    del steps[0]["state"]
+    return _set_steps(rows, FIRST_CASE_ID, steps)
+
+
+def _with_non_integer_step_no(rows: CsvRows) -> CsvRows:
+    return _update_step(rows, FIRST_CASE_ID, 0, {"step_no": True})
+
+
+def _with_non_consecutive_step_no(rows: CsvRows) -> CsvRows:
+    steps = _steps(rows, "case_03")
+    steps[1]["step_no"] = 5
+    return _set_steps(rows, "case_03", steps)
+
+
+def _with_disallowed_step_combination(rows: CsvRows) -> CsvRows:
+    return _update_step(rows, FIRST_CASE_ID, 0, {"operation": "DELETE_RECORD"})
+
+
+def _with_out_of_order_steps(rows: CsvRows) -> CsvRows:
+    steps = _steps(rows, "case_03")
+    steps[0], steps[1] = steps[1], steps[0]
+    for step_position, step in enumerate(steps, start=1):
+        step["step_no"] = step_position
+    return _set_steps(rows, "case_03", steps)
+
+
+def _with_steps_for_not_applicable(rows: CsvRows) -> CsvRows:
+    row = rows[1]
+    row[1] = "NOT_APPLICABLE"
+    row[2] = json.dumps(
+        [
+            {
+                "step_no": 1,
+                "phase": "VERIFICATION",
+                "system_id": "account_service",
+                "resource_id": "account_001",
+                "operation": "VERIFY_RECORD_ABSENT",
+                "state": "ABSENT",
+                "evidence_id": "",
+            }
+        ]
+    )
+    return rows
+
+
+def _with_complete_finding(rows: CsvRows) -> CsvRows:
+    return _update_step(
+        rows,
+        FIRST_CASE_ID,
+        0,
+        {"phase": "FINDING", "operation": "REPORT_REMAINING_RECORD", "state": "PRESENT"},
+    )
+
+
+def _with_complete_without_evidence(rows: CsvRows) -> CsvRows:
+    return _update_step(rows, FIRST_CASE_ID, 0, {"evidence_id": ""})
+
+
+def _with_incomplete_finding_without_evidence(rows: CsvRows) -> CsvRows:
+    return _update_step(rows, "case_05", 0, {"evidence_id": ""})
+
+
+def _with_incomplete_remediation_evidence(rows: CsvRows) -> CsvRows:
+    return _update_step(rows, "case_05", 1, {"evidence_id": "evidence_54"})
+
+
+def _with_incomplete_verification_evidence(rows: CsvRows) -> CsvRows:
+    return _update_step(rows, "case_05", 2, {"evidence_id": "evidence_54"})
+
+
+def _with_unknown_evidence(rows: CsvRows) -> CsvRows:
+    return _update_step(rows, FIRST_CASE_ID, 0, {"evidence_id": "evidence_unknown"})
+
+
+def _with_late_evidence(rows: CsvRows) -> CsvRows:
+    return _update_step(rows, FIRST_CASE_ID, 0, {"evidence_id": "evidence_03"})
+
+
 @pytest.mark.parametrize(
     ("mutate_rows", "expected_problem"),
     [
@@ -95,6 +206,38 @@ def _with_wrong_header(rows: CsvRows) -> CsvRows:
             id="non-array-steps",
         ),
         pytest.param(_with_wrong_header, "line 1: header must be", id="wrong-header"),
+        pytest.param(_with_extra_step_key, "step 1: must have exactly", id="extra-step-key"),
+        pytest.param(_with_missing_step_key, "step 1: must have exactly", id="missing-step-key"),
+        pytest.param(_with_non_integer_step_no, "step 1: must have exactly", id="non-integer-step"),
+        pytest.param(_with_non_consecutive_step_no, "step 2: step_no must equal", id="step-number"),
+        pytest.param(_with_disallowed_step_combination, "invalid phase, operation", id="operation"),
+        pytest.param(_with_out_of_order_steps, "steps are not in canonical order", id="step-order"),
+        pytest.param(
+            _with_steps_for_not_applicable, "NOT_APPLICABLE must have", id="not-applicable"
+        ),
+        pytest.param(
+            _with_complete_finding, "COMPLETE steps must be VERIFICATION", id="complete-phase"
+        ),
+        pytest.param(
+            _with_complete_without_evidence, "COMPLETE steps must cite", id="complete-evidence"
+        ),
+        pytest.param(
+            _with_incomplete_finding_without_evidence,
+            "INCOMPLETE findings must cite",
+            id="incomplete-finding",
+        ),
+        pytest.param(
+            _with_incomplete_remediation_evidence,
+            "INCOMPLETE remediation and verification steps must not cite",
+            id="incomplete-remediation",
+        ),
+        pytest.param(
+            _with_incomplete_verification_evidence,
+            "INCOMPLETE remediation and verification steps must not cite",
+            id="incomplete-verification",
+        ),
+        pytest.param(_with_unknown_evidence, "unknown evidence_id", id="unknown-evidence"),
+        pytest.param(_with_late_evidence, "dated after audit_at", id="late-evidence"),
     ],
 )
 def test_main_reports_validation_errors(
@@ -127,12 +270,113 @@ def test_validation_uses_numeric_case_order(tmp_path: Path) -> None:
     predictions_path = tmp_path / PREDICTIONS_FILENAME
     rows = [rows[0], ["case_99", *rows[1][1:]], ["case_100", *rows[2][1:]]]
     _write_rows(predictions_path, rows)
+    audit_time = datetime.fromisoformat("2026-12-01T00:00:00Z")
+    evidence_time = datetime.fromisoformat("2026-01-01T00:00:00Z")
+    audit_times = {"case_99": audit_time, "case_100": audit_time}
 
-    assert validation_errors(predictions_path, ["case_99", "case_100"]) == []
+    assert validation_errors(predictions_path, audit_times, {"evidence_54": evidence_time}) == []
 
     rows[1], rows[2] = rows[2], rows[1]
     _write_rows(predictions_path, rows)
 
-    assert validation_errors(predictions_path, ["case_99", "case_100"]) == [
+    assert validation_errors(predictions_path, audit_times, {"evidence_54": evidence_time}) == [
         "line 3 (case_99): rows are not sorted by case number"
     ]
+
+
+def _score_step(step_no: int, resource_id: str, evidence_id: str) -> dict[str, object]:
+    return {
+        "step_no": step_no,
+        "phase": "VERIFICATION",
+        "system_id": "account_service",
+        "resource_id": resource_id,
+        "operation": "VERIFY_RECORD_ABSENT",
+        "state": "ABSENT",
+        "evidence_id": evidence_id,
+    }
+
+
+def _score_rows(status: str, steps: list[dict[str, object]]) -> CsvRows:
+    return [
+        ["case_id", "deletion_status", "steps_json"],
+        ["case_01", status, json.dumps(steps)],
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "steps", "metric", "expected_value"),
+    [
+        pytest.param(
+            "INCOMPLETE",
+            [_score_step(1, "account_001", "evidence_01")],
+            "status",
+            0.0,
+            id="status",
+        ),
+        pytest.param(
+            "COMPLETE",
+            [
+                {
+                    **_score_step(1, "account_001", "evidence_01"),
+                    "operation": "VERIFY_RECORD_PRESENT",
+                }
+            ],
+            "step",
+            0.0,
+            id="step",
+        ),
+        pytest.param(
+            "COMPLETE",
+            [_score_step(1, "account_001", "evidence_02")],
+            "field",
+            pytest.approx(1 / 3),
+            id="field",
+        ),
+        pytest.param(
+            "COMPLETE",
+            [
+                _score_step(1, "account_002", "evidence_02"),
+                _score_step(2, "account_001", "evidence_01"),
+            ],
+            "sequence",
+            0.0,
+            id="sequence",
+        ),
+    ],
+)
+def test_case_scores_partial_metrics(
+    tmp_path: Path,
+    status: str,
+    steps: list[dict[str, object]],
+    metric: str,
+    expected_value: object,
+) -> None:
+    labels_path = tmp_path / "labels.csv"
+    predictions_path = tmp_path / PREDICTIONS_FILENAME
+    expected_steps = [
+        _score_step(1, "account_001", "evidence_01"),
+        _score_step(2, "account_002", "evidence_02"),
+    ]
+    _write_rows(labels_path, _score_rows("COMPLETE", expected_steps))
+    _write_rows(predictions_path, _score_rows(status, steps))
+
+    score = case_scores(predictions_path, labels_path)[0]
+
+    assert getattr(score, metric) == expected_value
+
+
+def test_case_scores_missing_prediction_is_zero(tmp_path: Path) -> None:
+    labels_path = tmp_path / "labels.csv"
+    predictions_path = tmp_path / PREDICTIONS_FILENAME
+    _write_rows(labels_path, _score_rows("NOT_APPLICABLE", []))
+    _write_rows(predictions_path, [["case_id", "deletion_status", "steps_json"]])
+
+    score = case_scores(predictions_path, labels_path)[0]
+
+    assert (score.status, score.step, score.field, score.sequence, score.composite) == (
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    )
