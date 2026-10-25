@@ -246,6 +246,73 @@ def test_main_writes_valid_output_and_usage(run):
             _verified_steps("account_1819", "evidence_02"),
             id="account deleted before an earlier request ignored",
         ),
+        pytest.param(
+            "case_22",
+            "COMPLETE",
+            _verified_steps("account_2121", "evidence_06"),
+            id="nominated account absent from snapshot",
+        ),
+        pytest.param("case_23", "NOT_APPLICABLE", [], id="ambiguous nomination"),
+        pytest.param(
+            "case_24",
+            "COMPLETE",
+            _verified_steps("account_2424", "evidence_06"),
+            id="nominee linked to another user ruled out",
+        ),
+        pytest.param(
+            "case_25",
+            "COMPLETE",
+            _verified_steps("account_2525", "evidence_06"),
+            id="nominee matches reported result",
+        ),
+        pytest.param(
+            "case_26",
+            "COMPLETE",
+            _verified_steps("account_2626", "evidence_06"),
+            id="no nominee matches reported result",
+        ),
+        pytest.param(
+            "case_27",
+            "COMPLETE",
+            _verified_steps("account_2727", "evidence_06"),
+            id="nomination window earliest edge",
+        ),
+        pytest.param(
+            "case_28",
+            "COMPLETE",
+            _verified_steps("account_2828", "evidence_06"),
+            id="targeted nomination window earliest edge",
+        ),
+        pytest.param(
+            "case_29",
+            "COMPLETE",
+            _verified_steps("account_2929", "evidence_06"),
+            id="nomination after audit_at ignored",
+        ),
+        pytest.param(
+            "case_30",
+            "COMPLETE",
+            _verified_steps("account_3030", "evidence_06"),
+            id="other activity never nominates",
+        ),
+        pytest.param(
+            "case_32",
+            "COMPLETE",
+            _verified_steps("account_3232", "evidence_06"),
+            id="links after audit_at never rule out a nominee",
+        ),
+        pytest.param(
+            "case_33",
+            "COMPLETE",
+            _verified_steps("account_3333", "evidence_06"),
+            id="nomination window latest edge",
+        ),
+        pytest.param(
+            "case_34",
+            "COMPLETE",
+            _verified_steps("account_3434", "evidence_06"),
+            id="targeted nomination window latest edge",
+        ),
     ],
 )
 def test_main_audits_account_records(run, case_id, expected_status, expected_steps):
@@ -261,7 +328,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
     ("case_id", "expected_status", "expected_steps"),
     [
         pytest.param(
-            "case_21",
+            "case_35",
             "INCOMPLETE",
             _treatment_steps(
                 SUPPORT_SYSTEM,
@@ -274,7 +341,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
             id="support message exposes direct identifiers",
         ),
         pytest.param(
-            "case_22",
+            "case_36",
             "COMPLETE",
             _verified_steps(
                 "support_2201", "evidence_13", "VERIFY_RECORD_REDACTED", "REDACTED", SUPPORT_SYSTEM
@@ -282,7 +349,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
             id="redacted support message retains stable reference",
         ),
         pytest.param(
-            "case_23",
+            "case_37",
             "INCOMPLETE",
             _treatment_steps(
                 ANALYTICS_SYSTEM,
@@ -295,19 +362,19 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
             id="analytics profile exposes direct identifiers",
         ),
         pytest.param(
-            "case_24",
+            "case_38",
             "INCOMPLETE",
             _remaining_record_steps("support_2401", "evidence_13", SUPPORT_SYSTEM),
             id="contact index lookup does not retain shared context",
         ),
         pytest.param(
-            "case_25",
+            "case_39",
             "INCOMPLETE",
             _remaining_record_steps("analytics_2501", "evidence_13", ANALYTICS_SYSTEM),
             id="analytics contact lookup is a marketing profile",
         ),
         pytest.param(
-            "case_26",
+            "case_40",
             "COMPLETE",
             _verified_steps(
                 "support_2601", "evidence_14", "VERIFY_RECORD_REDACTED", "REDACTED", SUPPORT_SYSTEM
@@ -315,7 +382,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
             id="later snapshot omission does not erase retained support record",
         ),
         pytest.param(
-            "case_27",
+            "case_41",
             "INCOMPLETE",
             _treatment_steps(
                 ANALYTICS_SYSTEM,
@@ -328,7 +395,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
             id="analytics profile user id remains attributable",
         ),
         pytest.param(
-            "case_28",
+            "case_42",
             "INCOMPLETE",
             _treatment_steps(
                 SUPPORT_SYSTEM,
@@ -341,7 +408,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
             id="contact index hit remains present after a redacted ticket read",
         ),
         pytest.param(
-            "case_29",
+            "case_43",
             "INCOMPLETE",
             _treatment_steps(
                 SUPPORT_SYSTEM,
@@ -354,7 +421,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
             id="ledger identifiable support message is exposed",
         ),
         pytest.param(
-            "case_30",
+            "case_44",
             "INCOMPLETE",
             _treatment_steps(
                 ANALYTICS_SYSTEM,
@@ -367,7 +434,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
             id="ledger identifiable analytics profile is exposed",
         ),
         pytest.param(
-            "case_31",
+            "case_45",
             "COMPLETE",
             _verified_steps(
                 "support_3101", "evidence_07", "VERIFY_RECORD_REDACTED", "REDACTED", SUPPORT_SYSTEM

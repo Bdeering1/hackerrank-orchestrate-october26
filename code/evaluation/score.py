@@ -87,8 +87,8 @@ def case_scores(predictions_path: Path, labels_path: Path) -> list[CaseScore]:
 
     Predictions must already pass validation.
     """
-    predictions = _rows_by_case(predictions_path)
-    labels = _rows_by_case(labels_path)
+    predictions = rows_by_case(predictions_path)
+    labels = rows_by_case(labels_path)
     scores: list[CaseScore] = []
     for case_id, (expected_status, expected_steps) in labels.items():
         predicted = predictions.get(case_id)
@@ -163,7 +163,7 @@ def render_markdown(scores: Collection[CaseScore]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _rows_by_case(path: Path) -> dict[str, tuple[str, list[Step]]]:
+def rows_by_case(path: Path) -> dict[str, tuple[str, list[Step]]]:
     return {row[0]: (row[1], _steps(row[2])) for row in data_rows(path)}
 
 
