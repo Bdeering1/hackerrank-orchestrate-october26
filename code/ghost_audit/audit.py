@@ -45,16 +45,11 @@ PLAN_RULES = {
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class _Proof:
+    copy: str
     state: str
     observed_at: datetime
     evidence_id: str
     is_observation: bool
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class _CopyState:
-    state: str
-    citation: _Proof | None
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -95,13 +90,17 @@ class Auditor:
         """Return the deletion status and ordered steps for one request."""
         if not _authorizes_deletion(request["request_text"]):
             return NOT_APPLICABLE, []
+        requested_at = datetime.fromisoformat(request["requested_at"])
         audit_at = datetime.fromisoformat(request["audit_at"])
         request_identifier = identity.normalized_identifier(request["email"]) or ""
         subject = self._identifiers_by_identifier.get(request_identifier, frozenset())
+        # A record last tied to the subject and already compliant before the request
+        # was handled by an earlier request.
         assessments = [
             assessment
-            for key in sorted(self._linked_resources(subject, audit_at))
-            if (assessment := self._assessment(key, audit_at)) is not None
+            for key, linked_at in sorted(self._link_times(subject, audit_at).items())
+            if not (linked_at < requested_at and self._is_compliant(key, requested_at))
+            and (assessment := self._assessment(key, audit_at)) is not None
         ]
         # evaluation.validate rejects COMPLETE and INCOMPLETE rows without steps.
         if not assessments:
@@ -110,60 +109,36 @@ class Auditor:
         steps = _planned_steps(assessments, is_complete=is_complete)
         return (COMPLETE if is_complete else INCOMPLETE), steps
 
-    def _linked_resources(self, subject: frozenset[str], audit_at: datetime) -> set[ResourceKey]:
-        linked = {
-            (observation.system, observation.resource_id)
+    def _link_times(
+        self, subject: frozenset[str], audit_at: datetime
+    ) -> dict[ResourceKey, datetime]:
+        link_times: dict[ResourceKey, datetime] = {}
+        links = [
+            ((observation.system, observation.resource_id), observation.observed_at)
             for identifier in subject
             for observation in self._observations_by_identifier.get(identifier, ())
-            if observation.observed_at <= audit_at
-        }
-        linked.update(
-            (claim.target_system, claim.resource_id)
+        ]
+        links.extend(
+            ((claim.target_system, claim.resource_id), claim.event_time)
             for claim, identifiers in self._catalog_links
-            if claim.event_time <= audit_at and identifiers & subject
+            if identifiers & subject
         )
-        return linked
+        for key, linked_at in links:
+            if linked_at <= audit_at:
+                link_times[key] = max(linked_at, link_times.get(key, linked_at))
+        return link_times
+
+    def _is_compliant(self, key: ResourceKey, at: datetime) -> bool:
+        rule_and_proofs = self._rule_and_proofs(key, at)
+        return rule_and_proofs is not None and not _gap_copies(*rule_and_proofs)
 
     def _assessment(self, key: ResourceKey, audit_at: datetime) -> _ResourceAssessment | None:
-        observations = [
-            observation
-            for observation in self._observations_by_resource.get(key, ())
-            if observation.observed_at <= audit_at
-        ]
-        if not observations:
+        rule_and_proofs = self._rule_and_proofs(key, audit_at)
+        if rule_and_proofs is None:
             return None
-        system, resource_id = key
-        category = observations[0].category
-        rule = PLAN_RULES[self._dataset.required_actions[category]]
-
-        proofs_by_copy: dict[str, list[_Proof]] = {}
-        for observation in observations:
-            proofs_by_copy.setdefault(observation.copy, []).append(
-                _Proof(
-                    observation.state,
-                    observation.observed_at,
-                    observation.evidence_id,
-                    is_observation=True,
-                )
-            )
-        for coverage in self._coverages_by_scope.get((system, category), ()):
-            if coverage.observed_at <= audit_at and resource_id not in coverage.resource_ids:
-                proofs_by_copy.setdefault(coverage.copy, []).append(
-                    _Proof(ABSENT, coverage.observed_at, coverage.evidence_id, is_observation=False)
-                )
-
-        copy_states = [self._copy_state(proofs, audit_at) for proofs in proofs_by_copy.values()]
-        gap_states = [copy for copy in copy_states if copy.state != rule.end_state]
-        # A gap copy known only from uncitable files cites the resource's latest citable proof.
-        citation = _preferred_citation(gap_states) or _preferred_citation(copy_states)
-        if citation is None:
-            return None
-        return _ResourceAssessment(
-            system, resource_id, rule, bool(gap_states), citation.evidence_id
-        )
-
-    def _copy_state(self, proofs: list[_Proof], audit_at: datetime) -> _CopyState:
-        latest = max(proofs, key=lambda proof: (proof.observed_at, proof.is_observation))
+        rule, proofs = rule_and_proofs
+        gap_copies = _gap_copies(rule, proofs)
+        has_gap = bool(gap_copies)
         citable = [
             proof
             for proof in proofs
@@ -172,22 +147,65 @@ class Auditor:
         citation = max(
             citable,
             key=lambda proof: (
-                proof.state == latest.state,
+                (proof.state != rule.end_state) == has_gap,
+                proof.copy in gap_copies,
                 proof.is_observation,
                 proof.observed_at,
             ),
             default=None,
         )
-        return _CopyState(latest.state, citation)
+        if citation is None:
+            return None
+        system, resource_id = key
+        return _ResourceAssessment(system, resource_id, rule, has_gap, citation.evidence_id)
+
+    def _rule_and_proofs(
+        self, key: ResourceKey, at: datetime
+    ) -> tuple[PlanRule, list[_Proof]] | None:
+        observations = [
+            observation
+            for observation in self._observations_by_resource.get(key, ())
+            if observation.observed_at <= at
+        ]
+        if not observations:
+            return None
+        system, resource_id = key
+        category = observations[0].category
+        proofs = [
+            _Proof(
+                observation.copy,
+                observation.state,
+                observation.observed_at,
+                observation.evidence_id,
+                is_observation=True,
+            )
+            for observation in observations
+        ]
+        proofs.extend(
+            _Proof(
+                coverage.copy,
+                ABSENT,
+                coverage.observed_at,
+                coverage.evidence_id,
+                is_observation=False,
+            )
+            for coverage in self._coverages_by_scope.get((system, category), ())
+            if coverage.observed_at <= at and resource_id not in coverage.resource_ids
+        )
+        return PLAN_RULES[self._dataset.required_actions[category]], proofs
 
 
 def _authorizes_deletion(_request_text: str) -> bool:
     return True
 
 
-def _preferred_citation(copy_states: Iterable[_CopyState]) -> _Proof | None:
-    citations = [copy.citation for copy in copy_states if copy.citation is not None]
-    return max(citations, key=lambda proof: (proof.is_observation, proof.observed_at), default=None)
+def _gap_copies(rule: PlanRule, proofs: Iterable[_Proof]) -> set[str]:
+    latest_by_copy: dict[str, _Proof] = {}
+    for proof in sorted(
+        proofs, key=lambda proof: (proof.observed_at, proof.is_observation), reverse=True
+    ):
+        latest_by_copy.setdefault(proof.copy, proof)
+    return {copy for copy, latest in latest_by_copy.items() if latest.state != rule.end_state}
 
 
 def _planned_steps(assessments: Iterable[_ResourceAssessment], *, is_complete: bool) -> list[Step]:

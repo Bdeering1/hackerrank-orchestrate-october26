@@ -13,6 +13,7 @@ CREATE TABLE customer_data_primary (
             updated_at TEXT NOT NULL
         );
 INSERT INTO "customer_data_primary" VALUES('search_4618','search_service','customer_search_documents','{"resource_id":"search_4618","index_name":"customer_directory_v3","document":{"display_name":"Lucía Herrera","email":"lucia.herrera@zoho.com","customer_reference":"user_15"}}','2026-09-03T06:00:00Z');
+INSERT INTO "customer_data_primary" VALUES('account_1313','account_service','customer_profiles','{"resource_id":"account_1313","customer_reference":null,"full_name":"Rafael Costa","email":null,"phone":null,"account_status":"ACTIVE","signup_channel":"web"}','2026-09-03T06:00:00Z');
 CREATE TABLE customer_data_reporting_replica (
             resource_id TEXT PRIMARY KEY,
             origin_system TEXT NOT NULL,

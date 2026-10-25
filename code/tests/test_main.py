@@ -154,8 +154,8 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_15",
             "INCOMPLETE",
-            _remaining_account_steps("account_1313", "evidence_02"),
-            id="uncitable replica copy remains, phone linked by log trace",
+            _remaining_account_steps("account_1313", "evidence_09"),
+            id="record found only in uncitable log, earlier citable record cited",
         ),
         pytest.param(
             "case_16",
@@ -180,6 +180,12 @@ def test_main_writes_valid_output_and_usage(run):
             "COMPLETE",
             _absent_account_steps("account_1717", "evidence_11"),
             id="log ledger record not found",
+        ),
+        pytest.param(
+            "case_20",
+            "COMPLETE",
+            _absent_account_steps("account_1819", "evidence_02"),
+            id="account deleted before an earlier request ignored",
         ),
     ],
 )
