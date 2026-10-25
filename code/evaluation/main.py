@@ -167,11 +167,11 @@ def _measure_noise(*, is_full_set: bool) -> int:
     sys.stdout.write(f"range: {score_range:.3f} points\n")
     sys.stdout.write(f"noise floor: {rounded_range:.1f}\n")
     if is_full_set:
-        most_changed_cases = max(
+        most_changed_case_count = max(
             changed_case_count(first_rows, second_rows)
             for first_rows, second_rows in itertools.combinations(full_set_rows, 2)
         )
-        sys.stdout.write(f"most changed full-set cases between runs: {most_changed_cases}\n")
+        sys.stdout.write(f"most changed full-set cases between runs: {most_changed_case_count}\n")
     sys.stdout.write(f"estimated cost: ${total_cost_usd:.2f}\n")
     return 0
 
