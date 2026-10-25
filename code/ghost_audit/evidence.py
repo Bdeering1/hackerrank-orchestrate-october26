@@ -133,6 +133,7 @@ class _EvidenceReader:
                 identifiers=_identifiers(record) if identifiers is None else identifiers,
                 observed_at=observed_at,
                 evidence_id=self._evidence_id,
+                retention_end=_retention_end(record, category.retention_end_field),
             )
         )
 
@@ -387,3 +388,10 @@ def _as_list(value: object) -> list[object]:
 
 def _time(value: object) -> datetime:
     return datetime.fromisoformat(str(value))
+
+
+def _retention_end(record: Record, field_name: str | None) -> datetime | None:
+    if field_name is None:
+        return None
+    value = record.get(field_name)
+    return None if value is None else _time(value)

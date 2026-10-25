@@ -29,6 +29,7 @@ class Observation:
     identifiers: frozenset[str]
     observed_at: datetime
     evidence_id: str
+    retention_end: datetime | None
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

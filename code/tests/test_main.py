@@ -21,6 +21,10 @@ REQUESTS_PATH = DATASET_DIR / "deletion_requests.csv"
 ACCOUNT_SYSTEM = "account_service"
 BACKUP_SYSTEM = "backup_service"
 DATA_FLOW_SYSTEM = "integration_service"
+SECURITY_SYSTEM = "security_service"
+IDENTITY_SYSTEM = "identity_service"
+LEGAL_SYSTEM = "legal_service"
+RETENTION_EVIDENCE_ID = "evidence_101"
 SUPPORT_SYSTEM = "support_platform"
 ANALYTICS_SYSTEM = "analytics_platform"
 SEARCH_SYSTEM = "search_service"
@@ -403,6 +407,81 @@ def test_main_writes_valid_output_and_usage(run):
             "COMPLETE",
             _blocked_flow_and_backup_steps("evidence_04"),
             id="disabled connector and blocked backup survive snapshot omission",
+        ),
+        pytest.param(
+            "case_101",
+            "COMPLETE",
+            _verified_steps(
+                "audit_record_2101",
+                RETENTION_EVIDENCE_ID,
+                "VERIFY_RECORD_PRESENT",
+                "PRESENT",
+                SECURITY_SYSTEM,
+            ),
+            id="retained security audit record",
+        ),
+        pytest.param(
+            "case_102",
+            "INCOMPLETE",
+            _remaining_record_steps("audit_record_2202", RETENTION_EVIDENCE_ID, SECURITY_SYSTEM),
+            id="expired security audit record",
+        ),
+        pytest.param(
+            "case_103",
+            "COMPLETE",
+            _verified_steps(
+                "legal_hold_2303",
+                RETENTION_EVIDENCE_ID,
+                "VERIFY_RECORD_PRESENT",
+                "PRESENT",
+                LEGAL_SYSTEM,
+            ),
+            id="retained legal hold record",
+        ),
+        pytest.param(
+            "case_104",
+            "COMPLETE",
+            _verified_steps(
+                "tombstone_2505",
+                RETENTION_EVIDENCE_ID,
+                "VERIFY_RECORD_REDACTED",
+                "REDACTED",
+                IDENTITY_SYSTEM,
+            ),
+            id="clean tombstone",
+        ),
+        pytest.param(
+            "case_105",
+            "INCOMPLETE",
+            _treatment_steps(
+                IDENTITY_SYSTEM,
+                "tombstone_2606",
+                RETENTION_EVIDENCE_ID,
+                "REDACT_RECORD",
+                "VERIFY_RECORD_REDACTED",
+                "REDACTED",
+            ),
+            id="tombstone exposing some identifiers",
+        ),
+        pytest.param(
+            "case_106",
+            "COMPLETE",
+            _verified_steps(
+                "audit_record_2808",
+                RETENTION_EVIDENCE_ID,
+                "VERIFY_RECORD_PRESENT",
+                "PRESENT",
+                SECURITY_SYSTEM,
+            ),
+            id="retained record remains compliant when a later snapshot omits it",
+        ),
+        pytest.param(
+            "case_107",
+            "INCOMPLETE",
+            _verified_steps(
+                "audit_record_3210", "", "VERIFY_RECORD_PRESENT", "PRESENT", SECURITY_SYSTEM
+            ),
+            id="retained record explicitly absent",
         ),
     ],
 )

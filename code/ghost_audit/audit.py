@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 from ghost_audit import identity
 from ghost_audit.categories import account, backup, data_flow
-from ghost_audit.model import ABSENT, ANONYMIZED, BLOCKED, DISABLED, REDACTED, Step
+from ghost_audit.model import ABSENT, ANONYMIZED, BLOCKED, DISABLED, PRESENT, REDACTED, Step
 from ghost_audit.output_format import (
     ANONYMIZE_RECORD,
     BLOCK_RESTORE,
@@ -21,6 +21,7 @@ from ghost_audit.output_format import (
     VERIFY_DATA_FLOW_DISABLED,
     VERIFY_RECORD_ABSENT,
     VERIFY_RECORD_ANONYMIZED,
+    VERIFY_RECORD_PRESENT,
     VERIFY_RECORD_REDACTED,
     VERIFY_RESTORE_BLOCKED,
     Operation,
@@ -36,6 +37,7 @@ COMPLETE = "COMPLETE"
 INCOMPLETE = "INCOMPLETE"
 NOT_APPLICABLE = "NOT_APPLICABLE"
 DELETE_ACTION = "DELETE"
+RETAIN_ACTION = "RETAIN"
 LINK_RESOURCE_IDENTITY = "LINK_RESOURCE_IDENTITY"
 DELETION_WORKER = "deletion_worker"
 TARGET_RESOURCE_MARKER = "Target resource:"
@@ -55,8 +57,8 @@ class PlanRule:
     """The end state a rule action or category requires and the steps that reach and check it."""
 
     end_state: str
-    finding: Operation
-    remediation: Operation
+    finding: Operation | None
+    remediation: Operation | None
     verification: Operation
 
 
@@ -66,6 +68,7 @@ PLAN_RULES = {
     "ANONYMIZE": PlanRule(
         ANONYMIZED, REPORT_EXPOSED_PII, ANONYMIZE_RECORD, VERIFY_RECORD_ANONYMIZED
     ),
+    RETAIN_ACTION: PlanRule(PRESENT, None, None, VERIFY_RECORD_PRESENT),
 }
 CATEGORY_PLAN_RULES = {
     data_flow.CATEGORY.rule_category: PlanRule(
@@ -317,6 +320,8 @@ class Auditor:
         action = self._dataset.required_actions[category]
         if not any(observation.is_condition_met for observation in observations):
             action = DELETE_ACTION
+        if action == RETAIN_ACTION and _is_retention_expired(observations, at):
+            action = DELETE_ACTION
         if action == DELETE_ACTION:
             coverages = self._coverages_by_scope.get((system, category), [])
             proofs.extend(
@@ -370,8 +375,10 @@ def _planned_steps(assessments: Iterable[_ResourceAssessment], *, is_complete: b
     for assessment in assessments:
         rule = assessment.rule
         if assessment.has_gap:
-            steps.append(_step(assessment, rule.finding, assessment.evidence_id))
-            steps.append(_step(assessment, rule.remediation, ""))
+            if rule.finding is not None:
+                steps.append(_step(assessment, rule.finding, assessment.evidence_id))
+            if rule.remediation is not None:
+                steps.append(_step(assessment, rule.remediation, ""))
         verification_evidence = assessment.evidence_id if is_complete else ""
         steps.append(_step(assessment, rule.verification, verification_evidence))
     return sorted(
@@ -382,6 +389,14 @@ def _planned_steps(assessments: Iterable[_ResourceAssessment], *, is_complete: b
             step.resource_id,
         ),
     )
+
+
+def _is_retention_expired(observations: Iterable[Observation], at: datetime) -> bool:
+    retention_end = max(
+        (observation.retention_end for observation in observations if observation.retention_end),
+        default=None,
+    )
+    return retention_end is not None and retention_end <= at
 
 
 def _step(assessment: _ResourceAssessment, operation: Operation, evidence_id: str) -> Step:
