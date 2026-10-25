@@ -2,5 +2,5 @@
 2026-09-05T10:00:00Z level=DEBUG service=account_service trace_id=rb-100000-001 event=profile_lookup_started resource_id=account_1313 lookup_key="+55 (11) 98765-4321"
 2026-09-05T10:00:00Z level=INFO service=account_service trace_id=rb-100000-001 event=profile_lookup_completed resource_id=account_1313 rows=1 http_status=200
 2026-09-06T08:00:00Z level=INFO service=readback_collector event=export_completed queries=1 dropped=0
-2026-09-04T16:00:00Z level=DEBUG service=security_service trace_id=security-3210 event=audit_record_read_started resource_id=audit_record_3210 subject_reference=user_52
+2026-09-04T16:00:00Z level=DEBUG service=security_service trace_id=security-3210 event=audit_record_read_started resource_id=audit_record_3210 subject_reference=user_107
 2026-09-04T16:00:00Z level=INFO service=security_service trace_id=security-3210 event=audit_record_read_completed resource_id=audit_record_3210 rows=0

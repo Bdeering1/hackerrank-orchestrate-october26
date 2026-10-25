@@ -22,9 +22,10 @@ ACCOUNT_SYSTEM = "account_service"
 SECURITY_SYSTEM = "security_service"
 IDENTITY_SYSTEM = "identity_service"
 LEGAL_SYSTEM = "legal_service"
-RETENTION_EVIDENCE_ID = "evidence_15"
+RETENTION_EVIDENCE_ID = "evidence_101"
 SUPPORT_SYSTEM = "support_platform"
 ANALYTICS_SYSTEM = "analytics_platform"
+SEARCH_SYSTEM = "search_service"
 
 
 def _step(
@@ -229,8 +230,19 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_17",
             "INCOMPLETE",
-            _remaining_record_steps("account_1515", "evidence_09"),
-            id="json replica row remains",
+            [
+                *_remaining_record_steps("account_1515", "evidence_09"),
+                _step(
+                    4,
+                    "VERIFICATION",
+                    "search_4618",
+                    "VERIFY_RECORD_ABSENT",
+                    "ABSENT",
+                    "",
+                    SEARCH_SYSTEM,
+                ),
+            ],
+            id="json replica row remains, search entry gone in evidence_15 snapshot",
         ),
         pytest.param(
             "case_18",
@@ -318,7 +330,7 @@ def test_main_writes_valid_output_and_usage(run):
             id="targeted nomination window latest edge",
         ),
         pytest.param(
-            "case_46",
+            "case_101",
             "COMPLETE",
             _verified_steps(
                 "audit_record_2101",
@@ -330,13 +342,13 @@ def test_main_writes_valid_output_and_usage(run):
             id="retained security audit record",
         ),
         pytest.param(
-            "case_47",
+            "case_102",
             "INCOMPLETE",
             _remaining_record_steps("audit_record_2202", RETENTION_EVIDENCE_ID, SECURITY_SYSTEM),
             id="expired security audit record",
         ),
         pytest.param(
-            "case_48",
+            "case_103",
             "COMPLETE",
             _verified_steps(
                 "legal_hold_2303",
@@ -348,7 +360,7 @@ def test_main_writes_valid_output_and_usage(run):
             id="retained legal hold record",
         ),
         pytest.param(
-            "case_49",
+            "case_104",
             "COMPLETE",
             _verified_steps(
                 "tombstone_2505",
@@ -360,7 +372,7 @@ def test_main_writes_valid_output_and_usage(run):
             id="clean tombstone",
         ),
         pytest.param(
-            "case_50",
+            "case_105",
             "INCOMPLETE",
             _treatment_steps(
                 IDENTITY_SYSTEM,
@@ -373,7 +385,7 @@ def test_main_writes_valid_output_and_usage(run):
             id="tombstone exposing some identifiers",
         ),
         pytest.param(
-            "case_51",
+            "case_106",
             "COMPLETE",
             _verified_steps(
                 "audit_record_2808",
@@ -385,7 +397,7 @@ def test_main_writes_valid_output_and_usage(run):
             id="retained record remains compliant when a later snapshot omits it",
         ),
         pytest.param(
-            "case_52",
+            "case_107",
             "INCOMPLETE",
             _verified_steps(
                 "audit_record_3210", "", "VERIFY_RECORD_PRESENT", "PRESENT", SECURITY_SYSTEM
@@ -523,6 +535,52 @@ def test_main_audits_records(run, case_id, expected_status, expected_steps):
     ],
 )
 def test_main_audits_support_and_analytics_records(run, case_id, expected_status, expected_steps):
+    _, output_dir = run
+    output_rows = {
+        row[0]: (row[1], json.loads(row[2])) for row in data_rows(output_dir / "output.csv")
+    }
+
+    assert output_rows[case_id] == (expected_status, expected_steps)
+
+
+@pytest.mark.parametrize(
+    ("case_id", "expected_status", "expected_steps"),
+    [
+        pytest.param(
+            "case_46",
+            "INCOMPLETE",
+            _remaining_record_steps("search_201", "evidence_15", SEARCH_SYSTEM),
+            id="search index entry remains",
+        ),
+        pytest.param(
+            "case_47",
+            "INCOMPLETE",
+            _remaining_record_steps("export_301", "evidence_15", "export_service"),
+            id="export remains with download unavailable",
+        ),
+        pytest.param(
+            "case_48",
+            "INCOMPLETE",
+            _remaining_record_steps("support_401", "evidence_15", SUPPORT_SYSTEM),
+            id="ticket attachment remains",
+        ),
+        pytest.param(
+            "case_49",
+            "COMPLETE",
+            _verified_steps("search_501", "evidence_15", system_id=SEARCH_SYSTEM),
+            id="search index entry dropped from later snapshot",
+        ),
+        pytest.param(
+            "case_50",
+            "INCOMPLETE",
+            _remaining_record_steps("search_601", "evidence_02", SEARCH_SYSTEM),
+            id="later partial snapshot never listed the search entry",
+        ),
+    ],
+)
+def test_main_audits_search_export_and_attachment_records(
+    run, case_id, expected_status, expected_steps
+):
     _, output_dir = run
     output_rows = {
         row[0]: (row[1], json.loads(row[2])) for row in data_rows(output_dir / "output.csv")
