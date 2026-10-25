@@ -290,7 +290,7 @@ def test_main_reports_unreadable_file(tmp_path: Path, capsys: pytest.CaptureFixt
 def test_validation_uses_numeric_case_order(tmp_path: Path) -> None:
     rows = _suite_label_rows()
     predictions_path = tmp_path / PREDICTIONS_FILENAME
-    rows = [rows[0], ["case_99", *rows[1][1:]], ["case_100", *rows[2][1:]]]
+    rows = [rows[0], ["case_99", *rows[1][1:]], ["case_100", *rows[1][1:]]]
     _write_rows(predictions_path, rows)
     audit_time = datetime.fromisoformat("2026-12-01T00:00:00Z")
     evidence_time = datetime.fromisoformat("2026-01-01T00:00:00Z")

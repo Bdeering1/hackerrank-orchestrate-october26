@@ -389,6 +389,18 @@ def test_main_writes_valid_output_and_usage(run):
             id="links after audit_at never rule out a nominee",
         ),
         pytest.param(
+            "case_110",
+            "COMPLETE",
+            _verified_steps(
+                "analytics_3410",
+                "evidence_13",
+                "VERIFY_RECORD_ANONYMIZED",
+                "ANONYMIZED",
+                ANALYTICS_SYSTEM,
+            ),
+            id="targeted claim nominates analytics profile without identifiers",
+        ),
+        pytest.param(
             "case_33",
             "COMPLETE",
             _verified_steps("account_3333", "evidence_06"),
@@ -486,6 +498,57 @@ def test_main_writes_valid_output_and_usage(run):
                 "audit_record_3210", "", "VERIFY_RECORD_PRESENT", "PRESENT", SECURITY_SYSTEM
             ),
             id="retained record explicitly absent",
+        ),
+        pytest.param(
+            "case_108",
+            "INCOMPLETE",
+            [
+                _step(
+                    1,
+                    "FINDING",
+                    "analytics_3208",
+                    "REPORT_EXPOSED_PII",
+                    "PRESENT",
+                    "evidence_13",
+                    ANALYTICS_SYSTEM,
+                ),
+                _step(
+                    2,
+                    "REMEDIATION",
+                    "analytics_3208",
+                    "ANONYMIZE_RECORD",
+                    "ANONYMIZED",
+                    "",
+                    ANALYTICS_SYSTEM,
+                ),
+                _step(
+                    3,
+                    "VERIFICATION",
+                    "audit_record_3208",
+                    "VERIFY_RECORD_PRESENT",
+                    "PRESENT",
+                    "",
+                    SECURITY_SYSTEM,
+                ),
+                _step(
+                    4,
+                    "VERIFICATION",
+                    "analytics_3208",
+                    "VERIFY_RECORD_ANONYMIZED",
+                    "ANONYMIZED",
+                    "",
+                    ANALYTICS_SYSTEM,
+                ),
+            ],
+            id="retained record seen only in a later file still verified in an incomplete case",
+        ),
+        pytest.param(
+            "case_109",
+            "COMPLETE",
+            _verified_steps(
+                "support_3309", "evidence_13", "VERIFY_RECORD_REDACTED", "REDACTED", SUPPORT_SYSTEM
+            ),
+            id="retained record seen only in a later file left out of a complete case",
         ),
     ],
 )

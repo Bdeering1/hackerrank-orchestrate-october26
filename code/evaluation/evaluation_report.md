@@ -16,7 +16,11 @@ full per-case reasoning, with the evidence IDs behind each label, is in
 | case_905 | from scratch (user_531) | Deletion after an earlier non-deletion request, with an account still present, a retained security record and a similar-name decoy | INCOMPLETE | yes |
 | case_906 | from scratch (user_538) | Uppercase request email, Swedish text, unsupported `COMPLETE` claim, account still present | INCOMPLETE | no |
 
-The holdout suite (`cases/holdout.txt`) is samples case_04, case_12 and case_30 plus case_902
+The holdout suite (`cases/holdout.txt`) is samples case_02, case_12 and case_30 plus case_902
 and case_905. Holdout cases are left out of default runs and promotion and are never used as
 prompt examples. `uv run python -m evaluation.main --holdout` scores them and compares the
 result with the previous holdout run.
+
+case_02 replaced case_04 after a nomination rule was derived from diagnosing case_04, which
+made its holdout score a tuned result. Holdout scores from before the swap are not comparable
+with later ones. [cases/README.md](cases/README.md) explains the choice.

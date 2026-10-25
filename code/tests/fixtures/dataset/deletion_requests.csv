@@ -58,3 +58,6 @@ case_104,tombstone.clean@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08
 case_105,tombstone.exposed@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
 case_106,security.missing@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
 case_107,security.absent@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_108,security.uncited@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_109,security.complete@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_110,analytics.targeted@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-02T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.

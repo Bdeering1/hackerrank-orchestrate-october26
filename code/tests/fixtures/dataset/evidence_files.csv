@@ -16,3 +16,4 @@ evidence_14,evidence/records/support_snapshot_treatments.json,support_snapshot_c
 evidence_15,evidence/records/customer_data_snapshot_bundle_20260904.json,records_assurance_snapshot_bundle,2026-09-04T12:00:00Z
 evidence_101,evidence/records/retention_cases.json,test_records,2026-09-04T12:00:00Z
 evidence_102,evidence/records/security_retention_export.json,test_records,2026-09-04T12:00:00Z
+evidence_16,evidence/records/customer_data_snapshot_bundle_20260910.json,records_assurance_snapshot_bundle,2026-09-10T12:00:00Z
