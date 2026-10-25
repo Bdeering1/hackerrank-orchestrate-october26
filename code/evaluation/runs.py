@@ -24,6 +24,7 @@ if typing.TYPE_CHECKING:
     from evaluation.score import CaseScore
 
 RUNS_DIR = Path(__file__).resolve().parents[2] / "eval_runs"
+HOLDOUT_DIRNAME = "holdout"
 SCORE_PATH = Path(__file__).with_name("score.py")
 BASELINE_FILENAME = "baseline.txt"
 OUTPUT_FILENAME = "output.csv"
@@ -33,6 +34,8 @@ RUN_FILENAME = "run.json"
 DIFF_FILENAME = "diff.md"
 LOCK_FILENAME = ".baseline.lock"
 LOCK_POLL_SECONDS = 0.1
+BASELINE_REFERENCE = "baseline"
+HOLDOUT_REFERENCE = "previous holdout run"
 
 NOISE_FLOOR = 0.0
 TIE_COST_FRACTION = 0.2
@@ -67,6 +70,16 @@ class RunRecord(typing.TypedDict):
     agent_version: AgentVersion
     scoring_sha256: str
     promotion: Promotion
+
+
+class HoldoutRunRecord(typing.TypedDict):
+    """Contents of a saved holdout run's run.json."""
+
+    run_id: str
+    created_at: str
+    agent_version: AgentVersion
+    scoring_sha256: str
+    previous_run_id: str | None
 
 
 class PromotionRefusedError(Exception):
@@ -135,7 +148,7 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
     Writes the diff and promotion outcome to stdout and returns the run ID.
     """
     now = datetime.now(UTC)
-    run_id = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}"
+    run_id = _new_run_id(now)
     agent_version = _agent_version()
 
     # The lock keeps a concurrent run from moving the baseline between the comparison and the
@@ -143,16 +156,14 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
     with _baseline_lock():
         baseline_run_id = _baseline_run_id()
         run_dir = RUNS_DIR / run_id
-        run_dir.mkdir()
-        try:
-            outcome = _save_run(
+        outcome: Outcome = _saved_in_new_dir(
+            run_dir,
+            lambda: _save_run(
                 run_id, baseline_run_id, output_path, usage_path, labels_path, scores_markdown
-            )
-        except Exception:
-            shutil.rmtree(run_dir)
-            raise
+            ),
+        )
         _write_run_record(
-            run_id,
+            run_dir,
             {
                 "run_id": run_id,
                 "created_at": now.isoformat(),
@@ -170,6 +181,103 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
     return run_id
 
 
+def record_holdout_run(
+    output_path: Path, usage_path: Path, labels_path: Path, scores_markdown: str
+) -> str:
+    """Save a validated holdout run and diff it against the previous holdout run.
+
+    Holdout runs are never promoted. Writes the diff to stdout and returns the run ID.
+    """
+    now = datetime.now(UTC)
+    run_id = _new_run_id(now)
+    agent_version = _agent_version()
+    holdout_dir = RUNS_DIR / HOLDOUT_DIRNAME
+
+    # The lock keeps concurrent holdout runs from diffing against the same previous run.
+    with _baseline_lock():
+        previous_record = _latest_holdout_record(holdout_dir)
+        run_dir = holdout_dir / run_id
+        _saved_in_new_dir(
+            run_dir,
+            lambda: _save_holdout_run(
+                run_dir, previous_record, output_path, usage_path, labels_path, scores_markdown
+            ),
+        )
+        _write_run_record(
+            run_dir,
+            {
+                "run_id": run_id,
+                "created_at": now.isoformat(),
+                "agent_version": agent_version,
+                "scoring_sha256": _scoring_sha256(labels_path),
+                "previous_run_id": previous_record["run_id"] if previous_record else None,
+            },
+        )
+    sys.stdout.write(f"Holdout run {run_id}: saved\n")
+    return run_id
+
+
+def _new_run_id(now: datetime) -> str:
+    return f"{now.strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}"
+
+
+def _saved_in_new_dir[T](run_dir: Path, save: typing.Callable[[], T]) -> T:
+    """Create run_dir, fill it with save and remove it again if saving fails."""
+    run_dir.mkdir(parents=True)
+    try:
+        return save()
+    except Exception:
+        shutil.rmtree(run_dir)
+        raise
+
+
+def _save_holdout_run(
+    run_dir: Path,
+    previous_record: HoldoutRunRecord | None,
+    output_path: Path,
+    usage_path: Path,
+    labels_path: Path,
+    scores_markdown: str,
+) -> None:
+    _copy_run_files(run_dir, output_path, usage_path, scores_markdown)
+    if previous_record is None:
+        sys.stdout.write("\nNo previous holdout run to compare with.\n")
+        return
+    comparison = compare_runs(
+        previous_record["run_id"], run_dir.name, labels_path, runs_dir=run_dir.parent
+    )
+    diff_markdown = _render_diff(comparison, HOLDOUT_REFERENCE) + _scoring_warning(
+        previous_record["scoring_sha256"], labels_path, HOLDOUT_REFERENCE
+    )
+    (run_dir / DIFF_FILENAME).write_text(diff_markdown, encoding="utf-8")
+    sys.stdout.write(f"\n{diff_markdown}")
+
+
+def _latest_holdout_record(holdout_dir: Path) -> HoldoutRunRecord | None:
+    records = [
+        typing.cast("HoldoutRunRecord", json.loads(run_path.read_text(encoding="utf-8")))
+        for run_path in holdout_dir.glob(f"*/{RUN_FILENAME}")
+    ]
+    return max(records, key=lambda record: record["created_at"], default=None)
+
+
+def _copy_run_files(
+    run_dir: Path, output_path: Path, usage_path: Path, scores_markdown: str
+) -> None:
+    shutil.copyfile(output_path, run_dir / OUTPUT_FILENAME)
+    shutil.copyfile(usage_path, run_dir / USAGE_FILENAME)
+    (run_dir / SCORES_FILENAME).write_text(scores_markdown, encoding="utf-8")
+
+
+def _scoring_warning(recorded_scoring_sha256: str, labels_path: Path, reference_name: str) -> str:
+    if recorded_scoring_sha256 == _scoring_sha256(labels_path):
+        return ""
+    return (
+        f"\nWarning: the scoring code or labels changed since the {reference_name} was "
+        f"recorded, so another saved run may now score higher than the {reference_name}.\n"
+    )
+
+
 def _save_run(
     run_id: str,
     baseline_run_id: str | None,
@@ -179,20 +287,17 @@ def _save_run(
     scores_markdown: str,
 ) -> Outcome:
     run_dir = RUNS_DIR / run_id
-    shutil.copyfile(output_path, run_dir / OUTPUT_FILENAME)
-    shutil.copyfile(usage_path, run_dir / USAGE_FILENAME)
-    (run_dir / SCORES_FILENAME).write_text(scores_markdown, encoding="utf-8")
+    _copy_run_files(run_dir, output_path, usage_path, scores_markdown)
 
     if baseline_run_id is None:
         sys.stdout.write("\nNo baseline: run promoted as the first baseline.\n")
         return "promoted"
     comparison = compare_runs(baseline_run_id, run_id, labels_path)
-    diff_markdown = _render_diff(comparison)
-    if _read_run_record(baseline_run_id)["scoring_sha256"] != _scoring_sha256(labels_path):
-        diff_markdown += (
-            "\nWarning: the scoring code or labels changed since the baseline was recorded, "
-            "so another saved run may now score higher than the baseline.\n"
-        )
+    diff_markdown = _render_diff(comparison, BASELINE_REFERENCE) + _scoring_warning(
+        _read_run_record(RUNS_DIR / baseline_run_id)["scoring_sha256"],
+        labels_path,
+        BASELINE_REFERENCE,
+    )
     (run_dir / DIFF_FILENAME).write_text(diff_markdown, encoding="utf-8")
     sys.stdout.write(f"\n{diff_markdown}")
     return _outcome(comparison)
@@ -201,12 +306,17 @@ def _save_run(
 def promote_run(run_id: str) -> None:
     """Promote a recorded tied run to baseline.
 
-    Raises PromotionRefusedError for any other run.
+    Raises PromotionRefusedError for any other run, including every holdout run.
     """
-    if Path(run_id).name != run_id or not (RUNS_DIR / run_id / RUN_FILENAME).is_file():
+    if Path(run_id).name != run_id:
+        raise PromotionRefusedError(f"unknown run: {run_id}")
+    if (RUNS_DIR / HOLDOUT_DIRNAME / run_id / RUN_FILENAME).is_file():
+        raise PromotionRefusedError(f"run {run_id} is a holdout run, which is never promoted")
+    run_dir = RUNS_DIR / run_id
+    if not (run_dir / RUN_FILENAME).is_file():
         raise PromotionRefusedError(f"unknown run: {run_id}")
     with _baseline_lock():
-        record = _read_run_record(run_id)
+        record = _read_run_record(run_dir)
         promotion = record["promotion"]
         if promotion["outcome"] != "tie":
             raise PromotionRefusedError(f"run {run_id} is {promotion['outcome']}, not a tie")
@@ -215,7 +325,7 @@ def promote_run(run_id: str) -> None:
                 f"run {run_id} tied against a baseline that is no longer current"
             )
         record["promotion"]["outcome"] = "promoted"
-        _write_run_record(run_id, record)
+        _write_run_record(run_dir, record)
         _write_baseline(run_id)
 
 
@@ -240,10 +350,16 @@ def _baseline_lock() -> typing.Generator[None]:
         lock_path.unlink()
 
 
-def compare_runs(baseline_run_id: str, run_id: str, labels_path: Path) -> RunComparison:
-    """Re-score two saved runs over the cases they share and compare them."""
-    baseline_output_path = RUNS_DIR / baseline_run_id / OUTPUT_FILENAME
-    run_output_path = RUNS_DIR / run_id / OUTPUT_FILENAME
+def compare_runs(
+    baseline_run_id: str, run_id: str, labels_path: Path, runs_dir: Path | None = None
+) -> RunComparison:
+    """Re-score two saved runs over the cases they share and compare them.
+
+    Runs are read from runs_dir, which defaults to the directory of promotable runs.
+    """
+    runs_dir = runs_dir or RUNS_DIR
+    baseline_output_path = runs_dir / baseline_run_id / OUTPUT_FILENAME
+    run_output_path = runs_dir / run_id / OUTPUT_FILENAME
     baseline_case_ids = _output_case_ids(baseline_output_path)
     run_case_ids = _output_case_ids(run_output_path)
     shared_case_ids = baseline_case_ids & run_case_ids
@@ -256,8 +372,8 @@ def compare_runs(baseline_run_id: str, run_id: str, labels_path: Path) -> RunCom
         run_id,
         baseline_scores,
         run_scores,
-        _cost_per_request_usd(baseline_run_id, len(baseline_case_ids)),
-        _cost_per_request_usd(run_id, len(run_case_ids)),
+        _cost_per_request_usd(runs_dir / baseline_run_id, len(baseline_case_ids)),
+        _cost_per_request_usd(runs_dir / run_id, len(run_case_ids)),
         _bootstrap_interval(baseline_scores, run_scores),
     )
 
@@ -313,14 +429,14 @@ def _bootstrap_interval(
     return deltas[lower], deltas[upper]
 
 
-def _cost_per_request_usd(run_id: str, request_count: int) -> float:
-    summary = usage_summary(RUNS_DIR / run_id / USAGE_FILENAME, request_count)
+def _cost_per_request_usd(run_dir: Path, request_count: int) -> float:
+    summary = usage_summary(run_dir / USAGE_FILENAME, request_count)
     return summary.cost_per_request_usd(summary.overall)
 
 
-def _render_diff(comparison: RunComparison) -> str:
+def _render_diff(comparison: RunComparison, reference_name: str) -> str:
     lines = [
-        f"## Diff against baseline {comparison.baseline_run_id}",
+        f"## Diff against {reference_name} {comparison.baseline_run_id}",
         "",
         f"Shared cases: {len(comparison.run_scores)}",
         (
@@ -337,7 +453,7 @@ def _render_diff(comparison: RunComparison) -> str:
             f"${comparison.run_cost_per_request_usd:.6f}"
         ),
         "",
-        "| Metric | Baseline | Run | Change |",
+        f"| Metric | {reference_name.capitalize()} | Run | Change |",
         "| --- | ---: | ---: | ---: |",
     ]
     for metric in METRICS:
@@ -383,15 +499,13 @@ def _write_baseline(run_id: str) -> None:
     (RUNS_DIR / BASELINE_FILENAME).write_text(f"{run_id}\n", encoding="utf-8")
 
 
-def _read_run_record(run_id: str) -> RunRecord:
-    run_text = (RUNS_DIR / run_id / RUN_FILENAME).read_text(encoding="utf-8")
+def _read_run_record(run_dir: Path) -> RunRecord:
+    run_text = (run_dir / RUN_FILENAME).read_text(encoding="utf-8")
     return typing.cast("RunRecord", json.loads(run_text))
 
 
-def _write_run_record(run_id: str, record: RunRecord) -> None:
-    (RUNS_DIR / run_id / RUN_FILENAME).write_text(
-        json.dumps(record, indent=2) + "\n", encoding="utf-8"
-    )
+def _write_run_record(run_dir: Path, record: RunRecord | HoldoutRunRecord) -> None:
+    (run_dir / RUN_FILENAME).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
 
 def _agent_version() -> AgentVersion:
