@@ -1,2 +1,5 @@
 rule_id,data_category,condition,required_action
 rule_01,USER_PROFILE,Always,DELETE
+rule_02,SUPPORT_MESSAGE,"Conversation contains shared customer, agent, or order context that must be retained",REDACT
+rule_03,ANALYTICS_PROFILE,Record is still attributable to a user,ANONYMIZE
+rule_04,MARKETING_PROFILE,Always,DELETE

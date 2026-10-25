@@ -129,6 +129,7 @@ class _EvidenceReader:
                 copy=copy,
                 category=category.rule_category,
                 state=state,
+                is_condition_met=category.is_condition_met(record),
                 identifiers=_identifiers(record) if identifiers is None else identifiers,
                 observed_at=observed_at,
                 evidence_id=self._evidence_id,
