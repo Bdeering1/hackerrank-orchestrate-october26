@@ -12,6 +12,8 @@ if typing.TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable
     from pathlib import Path
 
+COMPARED_FIELDS: typing.Final = ("operation", "state", "evidence_id")
+
 
 @dataclass(frozen=True)
 class Ratio:
@@ -94,7 +96,7 @@ def case_scores(predictions_path: Path, labels_path: Path) -> list[CaseScore]:
             step_count = max(1, len(expected_steps))
             missing_step_ratios = (
                 Ratio(0, step_count),
-                Ratio(0, 3 * step_count),
+                Ratio(0, len(COMPARED_FIELDS) * step_count),
                 Ratio(0, step_count),
             )
             scores.append(
@@ -148,7 +150,9 @@ def render_markdown(scores: Collection[CaseScore]) -> str:
         ]
     )
     lines.extend(
-        f"| {score.case_id} | {score.expected_status} | {score.predicted_status or ''} | {score.step_f1.value:.1%} | {score.field_accuracy.value:.1%} | {score.sequence_similarity.value:.1%} | {score.composite:.1f}% |"
+        f"| {score.case_id} | {score.expected_status} | {score.predicted_status or ''} | "
+        f"{score.step_f1.value:.1%} | {score.field_accuracy.value:.1%} | "
+        f"{score.sequence_similarity.value:.1%} | {score.composite:.1f}% |"
         for score in scores
     )
     return "\n".join(lines) + "\n"
@@ -187,10 +191,10 @@ def _field_score(predicted_steps: list[Step], expected_steps: list[Step]) -> Rat
     matching_fields = sum(
         predicted_step[field] == expected_step[field]
         for predicted_step, expected_step in aligned_pairs
-        for field in ("operation", "state", "evidence_id")
+        for field in COMPARED_FIELDS
     )
     unaligned_count = len(predicted_steps) + len(expected_steps) - 2 * len(aligned_pairs)
-    return Ratio(matching_fields, 3 * (len(aligned_pairs) + unaligned_count))
+    return Ratio(matching_fields, len(COMPARED_FIELDS) * (len(aligned_pairs) + unaligned_count))
 
 
 def _sequence_score(predicted_steps: list[Step], expected_steps: list[Step]) -> Ratio:

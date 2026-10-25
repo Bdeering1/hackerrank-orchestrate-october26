@@ -8,7 +8,7 @@ from pathlib import Path
 
 from evaluation.score import case_scores, render_markdown
 from evaluation.usage import format_usage_summary, usage_summary
-from evaluation.validate import data_rows, validation_errors
+from evaluation.validate import csv_rows, validation_errors
 from ghost_audit.__main__ import main as agent_main
 
 DATASET_DIR = Path(__file__).resolve().parents[2] / "dataset"
@@ -49,7 +49,7 @@ def main(argv: list[str]) -> int:
 
 def _score_predictions(predictions_path: Path, usage_path: Path | None = None) -> int:
     """Validate predictions and render weighted sample scores."""
-    audit_times = _times_from(REQUESTS_PATH, 5)
+    audit_times = _times_from(REQUESTS_PATH, "audit_at")
     errors = validation_errors(predictions_path, audit_times, _evidence_times())
     if errors:
         sys.stderr.write("validation failed:\n")
@@ -65,14 +65,16 @@ def _score_predictions(predictions_path: Path, usage_path: Path | None = None) -
 
 
 def _evidence_times() -> dict[str, datetime]:
-    evidence_times = _times_from(EVIDENCE_FILES_PATH, 3)
-    evidence_times.update(_times_from(SYSTEM_ACTIVITY_PATH, 1))
-    evidence_times.update(_times_from(AUDIT_LOG_PATH, 2))
+    evidence_times = _times_from(EVIDENCE_FILES_PATH, "captured_at")
+    evidence_times.update(_times_from(SYSTEM_ACTIVITY_PATH, "event_time"))
+    evidence_times.update(_times_from(AUDIT_LOG_PATH, "event_time"))
     return evidence_times
 
 
-def _times_from(path: Path, timestamp_index: int) -> dict[str, datetime]:
-    return {row[0]: datetime.fromisoformat(row[timestamp_index]) for row in data_rows(path)}
+def _times_from(path: Path, time_column: str) -> dict[str, datetime]:
+    header, *rows = csv_rows(path)
+    time_index = header.index(time_column)
+    return {row[0]: datetime.fromisoformat(row[time_index]) for row in rows}
 
 
 class _Arguments(argparse.Namespace):

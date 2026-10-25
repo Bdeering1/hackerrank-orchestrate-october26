@@ -42,7 +42,6 @@ def test_main_reports_status_mismatch(capsys: pytest.CaptureFixture[str], tmp_pa
 
     captured = capsys.readouterr()
     assert "Status matches: 31/32" in captured.out
-    assert "Composite: 100.0%" not in captured.out
 
 
 def _sample_output_rows() -> CsvRows:

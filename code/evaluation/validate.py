@@ -11,26 +11,29 @@ if typing.TYPE_CHECKING:
     from datetime import datetime
     from pathlib import Path
 
+FINDING_PHASE = "FINDING"
+REMEDIATION_PHASE = "REMEDIATION"
+VERIFICATION_PHASE = "VERIFICATION"
 VALID_STATUSES = frozenset({"COMPLETE", "INCOMPLETE", "NOT_APPLICABLE"})
 STEP_FIELDS = frozenset(
     {"step_no", "phase", "system_id", "resource_id", "operation", "state", "evidence_id"}
 )
 ALLOWED_OPERATIONS = (
-    ("FINDING", "REPORT_REMAINING_RECORD", "PRESENT"),
-    ("FINDING", "REPORT_EXPOSED_PII", "PRESENT"),
-    ("FINDING", "REPORT_ACTIVE_DATA_FLOW", "ACTIVE"),
-    ("FINDING", "REPORT_RESTORE_RISK", "ACTIVE"),
-    ("REMEDIATION", "DISABLE_DATA_FLOW", "DISABLED"),
-    ("REMEDIATION", "BLOCK_RESTORE", "BLOCKED"),
-    ("REMEDIATION", "DELETE_RECORD", "ABSENT"),
-    ("REMEDIATION", "REDACT_RECORD", "REDACTED"),
-    ("REMEDIATION", "ANONYMIZE_RECORD", "ANONYMIZED"),
-    ("VERIFICATION", "VERIFY_RECORD_ABSENT", "ABSENT"),
-    ("VERIFICATION", "VERIFY_RECORD_PRESENT", "PRESENT"),
-    ("VERIFICATION", "VERIFY_RECORD_REDACTED", "REDACTED"),
-    ("VERIFICATION", "VERIFY_RECORD_ANONYMIZED", "ANONYMIZED"),
-    ("VERIFICATION", "VERIFY_DATA_FLOW_DISABLED", "DISABLED"),
-    ("VERIFICATION", "VERIFY_RESTORE_BLOCKED", "BLOCKED"),
+    (FINDING_PHASE, "REPORT_REMAINING_RECORD", "PRESENT"),
+    (FINDING_PHASE, "REPORT_EXPOSED_PII", "PRESENT"),
+    (FINDING_PHASE, "REPORT_ACTIVE_DATA_FLOW", "ACTIVE"),
+    (FINDING_PHASE, "REPORT_RESTORE_RISK", "ACTIVE"),
+    (REMEDIATION_PHASE, "DISABLE_DATA_FLOW", "DISABLED"),
+    (REMEDIATION_PHASE, "BLOCK_RESTORE", "BLOCKED"),
+    (REMEDIATION_PHASE, "DELETE_RECORD", "ABSENT"),
+    (REMEDIATION_PHASE, "REDACT_RECORD", "REDACTED"),
+    (REMEDIATION_PHASE, "ANONYMIZE_RECORD", "ANONYMIZED"),
+    (VERIFICATION_PHASE, "VERIFY_RECORD_ABSENT", "ABSENT"),
+    (VERIFICATION_PHASE, "VERIFY_RECORD_PRESENT", "PRESENT"),
+    (VERIFICATION_PHASE, "VERIFY_RECORD_REDACTED", "REDACTED"),
+    (VERIFICATION_PHASE, "VERIFY_RECORD_ANONYMIZED", "ANONYMIZED"),
+    (VERIFICATION_PHASE, "VERIFY_DATA_FLOW_DISABLED", "DISABLED"),
+    (VERIFICATION_PHASE, "VERIFY_RESTORE_BLOCKED", "BLOCKED"),
 )
 OPERATION_ORDER = {operation: index for index, operation in enumerate(ALLOWED_OPERATIONS)}
 
@@ -262,7 +265,7 @@ def _status_errors(
     errors: list[str] = []
     for step_position, step, _ in valid_steps:
         if deletion_status == "COMPLETE":
-            if step["phase"] != "VERIFICATION":
+            if step["phase"] != VERIFICATION_PHASE:
                 errors.append(
                     _step_error(
                         line_number, case_id, step_position, "COMPLETE steps must be VERIFICATION"
@@ -274,13 +277,13 @@ def _status_errors(
                         line_number, case_id, step_position, "COMPLETE steps must cite evidence"
                     )
                 )
-        elif step["phase"] == "FINDING" and not step["evidence_id"]:
+        elif step["phase"] == FINDING_PHASE and not step["evidence_id"]:
             errors.append(
                 _step_error(
                     line_number, case_id, step_position, "INCOMPLETE findings must cite evidence"
                 )
             )
-        elif step["phase"] in {"REMEDIATION", "VERIFICATION"} and step["evidence_id"]:
+        elif step["phase"] in {REMEDIATION_PHASE, VERIFICATION_PHASE} and step["evidence_id"]:
             errors.append(
                 _step_error(
                     line_number,
