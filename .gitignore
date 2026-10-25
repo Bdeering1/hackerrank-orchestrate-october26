@@ -43,3 +43,6 @@ log.txt
 code.zip
 agent-trace/
 agent-trace.zip
+
+# Held only while a harness run updates the baseline
+eval_runs/.baseline.lock

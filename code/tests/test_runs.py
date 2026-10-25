@@ -1,5 +1,6 @@
 import csv
 import json
+import threading
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -111,6 +112,24 @@ def test_cost_tiebreak_compares_cost_per_request(record) -> None:
     record(rows[: 1 + half_case_count], EXPENSIVE_USAGE)
 
     assert _outcome(record(rows, DOUBLE_EXPENSIVE_USAGE)) == "tie"
+
+
+def test_run_waits_for_the_baseline_lock(record) -> None:
+    runs.RUNS_DIR.mkdir(parents=True)
+    lock_path = runs.RUNS_DIR / runs.LOCK_FILENAME
+    lock_path.touch()
+    run = threading.Thread(target=record, args=(_perfect_rows(),))
+    run.start()
+
+    run.join(timeout=0.5)
+    assert run.is_alive()
+    assert not (runs.RUNS_DIR / runs.BASELINE_FILENAME).exists()
+
+    lock_path.unlink()
+    run.join(timeout=10)
+    assert not run.is_alive()
+    assert (runs.RUNS_DIR / runs.BASELINE_FILENAME).is_file()
+    assert not lock_path.exists()
 
 
 def test_tied_run_can_be_promoted(record) -> None:

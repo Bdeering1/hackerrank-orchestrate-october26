@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+import os
 import random
 import secrets
 import shutil
 import subprocess
 import sys
+import time
 import typing
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -27,6 +30,8 @@ USAGE_FILENAME = "usage.json"
 SCORES_FILENAME = "scores.md"
 RUN_FILENAME = "run.json"
 DIFF_FILENAME = "diff.md"
+LOCK_FILENAME = ".baseline.lock"
+LOCK_POLL_SECONDS = 0.1
 
 NOISE_FLOOR = 0.0
 TIE_COST_FRACTION = 0.2
@@ -116,29 +121,32 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
     """
     now = datetime.now(UTC)
     run_id = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}"
-    baseline_run_id = _baseline_run_id()
     agent_version = _agent_version()
 
-    run_dir = RUNS_DIR / run_id
-    run_dir.mkdir(parents=True)
-    try:
-        outcome = _save_run(
-            run_id, baseline_run_id, output_path, usage_path, labels_path, scores_markdown
+    # The lock keeps a concurrent run from moving the baseline between the comparison and the
+    # promotion, which would leave a baseline that was never compared against this run.
+    with _baseline_lock():
+        baseline_run_id = _baseline_run_id()
+        run_dir = RUNS_DIR / run_id
+        run_dir.mkdir()
+        try:
+            outcome = _save_run(
+                run_id, baseline_run_id, output_path, usage_path, labels_path, scores_markdown
+            )
+        except Exception:
+            shutil.rmtree(run_dir)
+            raise
+        _write_run_record(
+            run_id,
+            {
+                "run_id": run_id,
+                "created_at": now.isoformat(),
+                "agent_version": agent_version,
+                "promotion": {"outcome": outcome, "baseline_run_id": baseline_run_id},
+            },
         )
-    except Exception:
-        shutil.rmtree(run_dir)
-        raise
-    _write_run_record(
-        run_id,
-        {
-            "run_id": run_id,
-            "created_at": now.isoformat(),
-            "agent_version": agent_version,
-            "promotion": {"outcome": outcome, "baseline_run_id": baseline_run_id},
-        },
-    )
-    if outcome == "promoted":
-        _write_baseline(run_id)
+        if outcome == "promoted":
+            _write_baseline(run_id)
     if outcome == "tie" and _is_interactive() and _confirms_promotion():
         outcome = "promoted"
         promote_run(run_id)
@@ -176,17 +184,39 @@ def promote_run(run_id: str) -> None:
     """
     if Path(run_id).name != run_id or not (RUNS_DIR / run_id / RUN_FILENAME).is_file():
         raise PromotionRefusedError(f"unknown run: {run_id}")
-    record = _read_run_record(run_id)
-    promotion = record["promotion"]
-    if promotion["outcome"] != "tie":
-        raise PromotionRefusedError(f"run {run_id} is {promotion['outcome']}, not a tie")
-    if promotion["baseline_run_id"] != _baseline_run_id():
-        raise PromotionRefusedError(
-            f"run {run_id} tied against a baseline that is no longer current"
-        )
-    record["promotion"]["outcome"] = "promoted"
-    _write_run_record(run_id, record)
-    _write_baseline(run_id)
+    with _baseline_lock():
+        record = _read_run_record(run_id)
+        promotion = record["promotion"]
+        if promotion["outcome"] != "tie":
+            raise PromotionRefusedError(f"run {run_id} is {promotion['outcome']}, not a tie")
+        if promotion["baseline_run_id"] != _baseline_run_id():
+            raise PromotionRefusedError(
+                f"run {run_id} tied against a baseline that is no longer current"
+            )
+        record["promotion"]["outcome"] = "promoted"
+        _write_run_record(run_id, record)
+        _write_baseline(run_id)
+
+
+@contextlib.contextmanager
+def _baseline_lock() -> typing.Generator[None]:
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = RUNS_DIR / LOCK_FILENAME
+    is_waiting_reported = False
+    while True:
+        try:
+            lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            if not is_waiting_reported:
+                sys.stderr.write(f"Waiting for {lock_path}; delete it if no other run is active.\n")
+                is_waiting_reported = True
+            time.sleep(LOCK_POLL_SECONDS)
+    os.close(lock_fd)
+    try:
+        yield
+    finally:
+        lock_path.unlink()
 
 
 def compare_runs(baseline_run_id: str, run_id: str, labels_path: Path) -> RunComparison:
