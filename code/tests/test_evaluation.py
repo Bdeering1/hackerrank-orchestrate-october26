@@ -501,9 +501,9 @@ def test_validate_defaults_to_root_output(
 def test_validate_reports_missing_case(
     full_set_output_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    rows = _without_last_row(csv_rows(full_set_output_path))
-    missing_case_id = csv_rows(full_set_output_path)[-1][0]
-    _write_rows(full_set_output_path, rows)
+    rows = csv_rows(full_set_output_path)
+    missing_case_id = rows[-1][0]
+    _write_rows(full_set_output_path, _without_last_row(rows))
 
     assert main(["validate", str(full_set_output_path)]) == 1
 

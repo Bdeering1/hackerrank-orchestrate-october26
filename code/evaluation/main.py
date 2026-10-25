@@ -23,7 +23,7 @@ AUDIT_LOG_PATH = DATASET_DIR / "user_audit_log.csv"
 
 
 def main(argv: list[str]) -> int:
-    """Run, validate or promote sample predictions and render weighted scores."""
+    """Run, score or promote sample predictions, or validate a full-set output."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--predictions", type=Path)
     subparsers = parser.add_subparsers(dest="command")
