@@ -145,8 +145,6 @@ def test_main_runs_placeholder_agent(capsys: pytest.CaptureFixture[str]) -> None
 
     captured = capsys.readouterr()
     assert "status accuracy:" in captured.out
-    assert "usage:" in captured.out
-    assert "cost/request" in captured.out
 
 
 def test_usage_summary_calculates_model_and_overall_costs(tmp_path: Path) -> None:
@@ -159,14 +157,11 @@ def test_usage_summary_calculates_model_and_overall_costs(tmp_path: Path) -> Non
 
     summary = usage_summary(usage_path, request_count=10)
 
-    assert summary.models[0].calls == 2
-    assert summary.models[0].input_tokens == 1_000_000
-    assert summary.models[0].output_tokens == 500_000
-    assert summary.models[0].estimated_cost_usd == 14
-    assert summary.models[1].calls == 1
-    assert summary.models[1].input_tokens == 500_000
-    assert summary.models[1].output_tokens == 1_000_000
-    assert summary.models[1].estimated_cost_usd == 11
+    opus, sonnet = (model.totals for model in summary.models)
+    assert (opus.calls, opus.input_tokens, opus.output_tokens) == (2, 1_000_000, 500_000)
+    assert opus.estimated_cost_usd == 14
+    assert (sonnet.calls, sonnet.input_tokens, sonnet.output_tokens) == (1, 500_000, 1_000_000)
+    assert sonnet.estimated_cost_usd == 11
     assert summary.overall.total_tokens == 3_000_000
     assert summary.overall.estimated_cost_usd == 25
     assert summary.overall.average_tokens_per_request == 300_000

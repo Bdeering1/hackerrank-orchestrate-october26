@@ -7,6 +7,8 @@ import typing
 if typing.TYPE_CHECKING:
     import pathlib
 
+    from ghost_audit.usage import ModelUsage
+
 MODEL_PRICES = {
     "claude-opus-5-5": (4.00, 20.00),
     "claude-sonnet-5-5": (2.00, 10.00),
@@ -15,18 +17,38 @@ MODEL_PRICES = {
 
 
 @dataclasses.dataclass(frozen=True)
+class UsageTotals:
+    """Usage and estimated cost for a model or for all models."""
+
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    estimated_cost_usd: float
+    request_count: int
+
+    @property
+    def total_tokens(self) -> int:
+        """Return input plus output tokens."""
+        return self.input_tokens + self.output_tokens
+
+    @property
+    def average_tokens_per_request(self) -> float:
+        """Return total tokens divided by requests."""
+        return self.total_tokens / self.request_count
+
+    @property
+    def cost_per_request_usd(self) -> float:
+        """Return estimated cost divided by requests."""
+        return self.estimated_cost_usd / self.request_count
+
+
+@dataclasses.dataclass(frozen=True)
 class ModelCost:
     """Usage and estimated cost for a model."""
 
     provider: str
     model: str
-    calls: int
-    input_tokens: int
-    output_tokens: int
-    total_tokens: int
-    average_tokens_per_request: float
-    estimated_cost_usd: float
-    cost_per_request_usd: float
+    totals: UsageTotals
 
 
 @dataclasses.dataclass(frozen=True)
@@ -37,23 +59,20 @@ class UsageSummary:
     overall: UsageTotals
 
 
-@dataclasses.dataclass(frozen=True)
-class UsageTotals:
-    """Aggregate usage and estimated cost across all models."""
-
-    calls: int
-    input_tokens: int
-    output_tokens: int
-    total_tokens: int
-    average_tokens_per_request: float
-    estimated_cost_usd: float
-    cost_per_request_usd: float
-
-
 def usage_summary(usage_path: pathlib.Path, request_count: int) -> UsageSummary:
     """Return priced model usage for a run."""
-    model_costs = tuple(_model_cost(record, request_count) for record in _usage_records(usage_path))
-    return UsageSummary(models=model_costs, overall=_overall_cost(model_costs, request_count))
+    usage = typing.cast(
+        "dict[str, list[ModelUsage]]", json.loads(usage_path.read_text(encoding="utf-8"))
+    )
+    models = tuple(_model_cost(model_usage, request_count) for model_usage in usage["models"])
+    overall = UsageTotals(
+        calls=sum(model.totals.calls for model in models),
+        input_tokens=sum(model.totals.input_tokens for model in models),
+        output_tokens=sum(model.totals.output_tokens for model in models),
+        estimated_cost_usd=sum(model.totals.estimated_cost_usd for model in models),
+        request_count=request_count,
+    )
+    return UsageSummary(models=models, overall=overall)
 
 
 def format_usage_summary(summary: UsageSummary) -> str:
@@ -62,109 +81,33 @@ def format_usage_summary(summary: UsageSummary) -> str:
         "usage:",
         "provider | model | calls | input | output | total | avg/request | cost | cost/request",
     ]
-    rows.extend(_format_cost(cost) for cost in summary.models)
-    rows.append(_format_totals(summary.overall))
+    rows.extend(_usage_row(model.provider, model.model, model.totals) for model in summary.models)
+    rows.append(_usage_row("overall", "all models", summary.overall))
     return "\n".join(rows)
 
 
-def _usage_records(usage_path: pathlib.Path) -> list[_UsageRecord]:
-    decoded_usage = typing.cast("object", json.loads(usage_path.read_text(encoding="utf-8")))
-    if not isinstance(decoded_usage, dict):
-        raise TypeError("usage JSON must be an object")
-    raw_usage = typing.cast("dict[str, object]", decoded_usage)
-    raw_models = raw_usage.get("models")
-    if not isinstance(raw_models, list):
-        raise TypeError("usage JSON must contain models")
-    model_values = typing.cast("list[object]", raw_models)
-    return [_usage_record(raw_model) for raw_model in model_values]
-
-
-def _usage_record(raw_model: object) -> _UsageRecord:
-    if not isinstance(raw_model, dict):
-        raise TypeError("usage model must be an object")
-    model_values = typing.cast("dict[str, object]", raw_model)
-    provider = model_values.get("provider")
-    model = model_values.get("model")
-    calls = model_values.get("calls")
-    input_tokens = model_values.get("input_tokens")
-    output_tokens = model_values.get("output_tokens")
-    if not isinstance(provider, str) or not isinstance(model, str):
-        raise TypeError("usage model must name a provider and model")
-    if (
-        not isinstance(calls, int)
-        or not isinstance(input_tokens, int)
-        or not isinstance(output_tokens, int)
-    ):
-        raise TypeError("usage model token counts must be integers")
-    return _UsageRecord(
-        provider=provider,
-        model=model,
-        calls=calls,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-    )
-
-
-def _model_cost(record: _UsageRecord, request_count: int) -> ModelCost:
+def _model_cost(model_usage: ModelUsage, request_count: int) -> ModelCost:
+    model = model_usage["model"]
     try:
-        input_rate, output_rate = MODEL_PRICES[record.model]
+        input_rate, output_rate = MODEL_PRICES[model]
     except KeyError as error:
-        raise ValueError(f"missing price for model: {record.model}") from error
-    total_tokens = record.input_tokens + record.output_tokens
-    estimated_cost = (
-        record.input_tokens * input_rate + record.output_tokens * output_rate
-    ) / 1_000_000
-    return ModelCost(
-        provider=record.provider,
-        model=record.model,
-        calls=record.calls,
-        input_tokens=record.input_tokens,
-        output_tokens=record.output_tokens,
-        total_tokens=total_tokens,
-        average_tokens_per_request=total_tokens / request_count,
-        estimated_cost_usd=estimated_cost,
-        cost_per_request_usd=estimated_cost / request_count,
-    )
-
-
-def _overall_cost(model_costs: tuple[ModelCost, ...], request_count: int) -> UsageTotals:
-    calls = sum(model_cost.calls for model_cost in model_costs)
-    input_tokens = sum(model_cost.input_tokens for model_cost in model_costs)
-    output_tokens = sum(model_cost.output_tokens for model_cost in model_costs)
-    total_tokens = input_tokens + output_tokens
-    estimated_cost = sum(model_cost.estimated_cost_usd for model_cost in model_costs)
-    return UsageTotals(
-        calls=calls,
+        raise ValueError(f"missing price for model: {model}") from error
+    input_tokens = model_usage["input_tokens"]
+    output_tokens = model_usage["output_tokens"]
+    totals = UsageTotals(
+        calls=model_usage["calls"],
         input_tokens=input_tokens,
         output_tokens=output_tokens,
-        total_tokens=total_tokens,
-        average_tokens_per_request=total_tokens / request_count,
-        estimated_cost_usd=estimated_cost,
-        cost_per_request_usd=estimated_cost / request_count,
+        estimated_cost_usd=(input_tokens * input_rate + output_tokens * output_rate) / 1_000_000,
+        request_count=request_count,
     )
+    return ModelCost(provider=model_usage["provider"], model=model, totals=totals)
 
 
-def _format_cost(cost: ModelCost) -> str:
+def _usage_row(provider: str, model: str, totals: UsageTotals) -> str:
     return (
-        f"{cost.provider} | {cost.model} | {cost.calls} | {cost.input_tokens} | "
-        f"{cost.output_tokens} | {cost.total_tokens} | {cost.average_tokens_per_request:.2f} | "
-        f"${cost.estimated_cost_usd:.6f} | ${cost.cost_per_request_usd:.6f}"
-    )
-
-
-def _format_totals(totals: UsageTotals) -> str:
-    return (
-        f"overall | all models | {totals.calls} | {totals.input_tokens} | "
+        f"{provider} | {model} | {totals.calls} | {totals.input_tokens} | "
         f"{totals.output_tokens} | {totals.total_tokens} | "
         f"{totals.average_tokens_per_request:.2f} | ${totals.estimated_cost_usd:.6f} | "
         f"${totals.cost_per_request_usd:.6f}"
     )
-
-
-@dataclasses.dataclass(frozen=True)
-class _UsageRecord:
-    provider: str
-    model: str
-    calls: int
-    input_tokens: int
-    output_tokens: int

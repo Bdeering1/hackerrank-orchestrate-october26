@@ -11,7 +11,7 @@ class UsageTracker:
     """Collect model-token usage for one agent run."""
 
     def __init__(self) -> None:
-        self._models: dict[tuple[str, str], _ModelUsage] = {}
+        self._models: dict[tuple[str, str], ModelUsage] = {}
 
     def record(self, provider: str, model: str, input_tokens: int, output_tokens: int) -> None:
         """Record one model call."""
@@ -35,7 +35,9 @@ class UsageTracker:
         usage_path.write_text(json.dumps({"models": models}), encoding="utf-8")
 
 
-class _ModelUsage(typing.TypedDict):
+class ModelUsage(typing.TypedDict):
+    """Token usage for one model in a run."""
+
     provider: str
     model: str
     calls: int
