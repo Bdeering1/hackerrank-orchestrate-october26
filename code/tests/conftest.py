@@ -29,4 +29,5 @@ def isolated_home(
 def runs_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     path = tmp_path / "eval_runs"
     monkeypatch.setattr(runs, "RUNS_DIR", path)
+    monkeypatch.setattr(runs, "_is_interactive", lambda: False)
     return path

@@ -68,12 +68,16 @@ class PromotionRefusedError(Exception):
 
 @dataclass(frozen=True)
 class CaseChange:
+    """A case whose composite changed between two runs."""
+
     before: CaseScore
     after: CaseScore
 
 
 @dataclass(frozen=True)
 class RunComparison:
+    """Scores and costs of a run and its baseline over their shared cases."""
+
     baseline_run_id: str
     run_id: str
     baseline_scores: list[CaseScore]

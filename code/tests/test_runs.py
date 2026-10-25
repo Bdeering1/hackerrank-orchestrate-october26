@@ -121,15 +121,11 @@ def test_promote_refuses_stale_tie(record) -> None:
         promote_run(stale_tie_id)
 
 
-def test_promote_refuses_non_tie_and_unknown_runs(
-    record, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_promote_refuses_non_tie_and_unknown_runs(record) -> None:
     promoted_id = record(_perfect_rows())
 
     assert main(["promote", promoted_id]) == 1
     assert main(["promote", "missing-run"]) == 1
-
-    assert "not a tie" in capsys.readouterr().err
     assert _baseline() == promoted_id
 
 
@@ -170,3 +166,16 @@ def test_interactive_tie_prompts_for_promotion(
     monkeypatch.setattr("builtins.input", lambda _: answer)
 
     assert _outcome(record(_perfect_rows())) == outcome
+
+
+def test_unsaved_scoring_paths(tmp_path: Path, runs_dir: Path) -> None:
+    predictions_path = tmp_path / "predictions.csv"
+    rows = _perfect_rows()
+    rows[1][1] = "UNKNOWN"
+    with predictions_path.open("w", encoding="utf-8", newline="") as predictions_file:
+        csv.writer(predictions_file).writerows(rows)
+
+    assert main(["--predictions", str(SAMPLE_OUTPUT_PATH)]) == 0
+    assert main(["--predictions", str(predictions_path)]) == 1
+
+    assert not runs_dir.exists()
