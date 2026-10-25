@@ -24,6 +24,7 @@ if typing.TYPE_CHECKING:
     from evaluation.score import CaseScore
 
 RUNS_DIR = Path(__file__).resolve().parents[2] / "eval_runs"
+SCORE_PATH = Path(__file__).with_name("score.py")
 BASELINE_FILENAME = "baseline.txt"
 OUTPUT_FILENAME = "output.csv"
 USAGE_FILENAME = "usage.json"
@@ -64,6 +65,7 @@ class RunRecord(typing.TypedDict):
     run_id: str
     created_at: str
     agent_version: AgentVersion
+    scoring_sha256: str
     promotion: Promotion
 
 
@@ -73,10 +75,15 @@ class PromotionRefusedError(Exception):
 
 @dataclass(frozen=True)
 class CaseChange:
-    """A case whose composite changed between two runs."""
+    """A case whose composite changed between two runs.
+
+    The pooled effect is how much the pooled composite moves when only this case changes, which
+    can disagree with the per-case change because pooling weights cases by their step counts.
+    """
 
     before: CaseScore
     after: CaseScore
+    pooled_effect: float
 
 
 @dataclass(frozen=True)
@@ -107,11 +114,19 @@ class RunComparison:
         return self._changes(lambda before, after: after < before)
 
     def _changes(self, is_change: typing.Callable[[float, float], bool]) -> list[CaseChange]:
-        return [
-            CaseChange(before, after)
-            for before, after in zip(self.baseline_scores, self.run_scores, strict=True)
+        changes = [
+            CaseChange(before, after, self._pooled_effect(index))
+            for index, (before, after) in enumerate(
+                zip(self.baseline_scores, self.run_scores, strict=True)
+            )
             if is_change(before.composite, after.composite)
         ]
+        return sorted(changes, key=lambda change: -abs(change.pooled_effect))
+
+    def _pooled_effect(self, index: int) -> float:
+        changed_scores = [*self.baseline_scores]
+        changed_scores[index] = self.run_scores[index]
+        return pooled_composite(changed_scores) - pooled_composite(self.baseline_scores)
 
 
 def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_markdown: str) -> str:
@@ -142,6 +157,7 @@ def record_run(output_path: Path, usage_path: Path, labels_path: Path, scores_ma
                 "run_id": run_id,
                 "created_at": now.isoformat(),
                 "agent_version": agent_version,
+                "scoring_sha256": _scoring_sha256(labels_path),
                 "promotion": {"outcome": outcome, "baseline_run_id": baseline_run_id},
             },
         )
@@ -172,6 +188,11 @@ def _save_run(
         return "promoted"
     comparison = compare_runs(baseline_run_id, run_id, labels_path)
     diff_markdown = _render_diff(comparison)
+    if _read_run_record(baseline_run_id)["scoring_sha256"] != _scoring_sha256(labels_path):
+        diff_markdown += (
+            "\nWarning: the scoring code or labels changed since the baseline was recorded, "
+            "so another saved run may now score higher than the baseline.\n"
+        )
     (run_dir / DIFF_FILENAME).write_text(diff_markdown, encoding="utf-8")
     sys.stdout.write(f"\n{diff_markdown}")
     return _outcome(comparison)
@@ -337,13 +358,14 @@ def _render_changes(title: str, changes: list[CaseChange]) -> list[str]:
     lines.extend(
         [
             "",
-            "| Case ID | Composite | Status |",
-            "| --- | --- | --- |",
+            "| Case ID | Composite | Pooled effect | Status |",
+            "| --- | --- | ---: | --- |",
         ]
     )
     lines.extend(
         f"| {change.before.case_id} | {change.before.composite:.1f}% -> "
-        f"{change.after.composite:.1f}% | {change.before.predicted_status} -> "
+        f"{change.after.composite:.1f}% | {change.pooled_effect:+.2f} | "
+        f"{change.before.predicted_status} -> "
         f"{change.after.predicted_status} (expected {change.after.expected_status}) |"
         for change in changes
     )
@@ -398,6 +420,13 @@ def _git_output(*arguments: str) -> str | None:
 
 def _package_dir() -> Path:
     return Path(ghost_audit.__file__).parent
+
+
+def _scoring_sha256(labels_path: Path) -> str:
+    digest = hashlib.sha256()
+    for path in (SCORE_PATH, labels_path):
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 def _source_sha256() -> str:

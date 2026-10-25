@@ -170,7 +170,19 @@ def test_diff_lists_fixed_and_regressed_cases(record) -> None:
     assert fixed.regressed == []
     assert [change.after.case_id for change in regressed.regressed] == [DEGRADED_CASE_ID]
     assert fixed.delta > 0
+    assert fixed.fixed[0].pooled_effect == pytest.approx(fixed.delta)
     assert fixed.interval[1] > 0
+
+
+def test_diff_warns_when_scoring_changed_since_baseline(
+    record, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    record(_perfect_rows())
+    monkeypatch.setattr(runs, "_scoring_sha256", lambda _: "changed")
+    run_id = record(_perfect_rows())
+
+    diff_markdown = (runs.RUNS_DIR / run_id / runs.DIFF_FILENAME).read_text()
+    assert "scoring code or labels changed" in diff_markdown
 
 
 def test_comparison_covers_only_shared_cases(record) -> None:
