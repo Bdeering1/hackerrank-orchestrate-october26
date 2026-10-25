@@ -10,6 +10,10 @@ from ghost_audit.__main__ import main
 DATASET_DIR = Path(__file__).resolve().parent / "fixtures" / "dataset"
 REQUESTS_PATH = DATASET_DIR / "deletion_requests.csv"
 ACCOUNT_SYSTEM = "account_service"
+SECURITY_SYSTEM = "security_service"
+IDENTITY_SYSTEM = "identity_service"
+LEGAL_SYSTEM = "legal_service"
+RETENTION_EVIDENCE_ID = "evidence_13"
 
 
 def _step(
@@ -52,7 +56,7 @@ def _remaining_steps(resource_id: str, system_id: str) -> list[dict[str, object]
             resource_id,
             "REPORT_REMAINING_RECORD",
             "PRESENT",
-            "evidence_13",
+            RETENTION_EVIDENCE_ID,
             system_id,
         ),
         _step(2, "REMEDIATION", resource_id, "DELETE_RECORD", "ABSENT", "", system_id),
@@ -233,8 +237,8 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                     "audit_record_2101",
                     "VERIFY_RECORD_PRESENT",
                     "PRESENT",
-                    "evidence_13",
-                    "security_service",
+                    RETENTION_EVIDENCE_ID,
+                    SECURITY_SYSTEM,
                 )
             ],
             id="retained security audit record",
@@ -242,7 +246,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
         pytest.param(
             "case_22",
             "INCOMPLETE",
-            _remaining_steps("audit_record_2202", "security_service"),
+            _remaining_steps("audit_record_2202", SECURITY_SYSTEM),
             id="expired security audit record",
         ),
         pytest.param(
@@ -255,8 +259,8 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                     "legal_hold_2303",
                     "VERIFY_RECORD_PRESENT",
                     "PRESENT",
-                    "evidence_13",
-                    "legal_service",
+                    RETENTION_EVIDENCE_ID,
+                    LEGAL_SYSTEM,
                 )
             ],
             id="retained legal hold record",
@@ -264,7 +268,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
         pytest.param(
             "case_24",
             "INCOMPLETE",
-            _remaining_steps("legal_hold_2404", "legal_service"),
+            _remaining_steps("legal_hold_2404", LEGAL_SYSTEM),
             id="expired legal hold record",
         ),
         pytest.param(
@@ -277,8 +281,8 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                     "tombstone_2505",
                     "VERIFY_RECORD_REDACTED",
                     "REDACTED",
-                    "evidence_13",
-                    "identity_service",
+                    RETENTION_EVIDENCE_ID,
+                    IDENTITY_SYSTEM,
                 )
             ],
             id="clean tombstone",
@@ -293,8 +297,8 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                     "tombstone_2606",
                     "REPORT_EXPOSED_PII",
                     "PRESENT",
-                    "evidence_13",
-                    "identity_service",
+                    RETENTION_EVIDENCE_ID,
+                    IDENTITY_SYSTEM,
                 ),
                 _step(
                     2,
@@ -303,7 +307,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                     "REDACT_RECORD",
                     "REDACTED",
                     "",
-                    "identity_service",
+                    IDENTITY_SYSTEM,
                 ),
                 _step(
                     3,
@@ -312,7 +316,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                     "VERIFY_RECORD_REDACTED",
                     "REDACTED",
                     "",
-                    "identity_service",
+                    IDENTITY_SYSTEM,
                 ),
             ],
             id="tombstone exposing identifiers",
@@ -327,8 +331,8 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                     "audit_record_2808",
                     "VERIFY_RECORD_PRESENT",
                     "PRESENT",
-                    "evidence_13",
-                    "security_service",
+                    RETENTION_EVIDENCE_ID,
+                    SECURITY_SYSTEM,
                 )
             ],
             id="retained record remains compliant when a later snapshot omits it",
@@ -336,7 +340,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
         pytest.param(
             "case_29",
             "INCOMPLETE",
-            _remaining_steps("audit_record_2909", "security_service"),
+            _remaining_steps("audit_record_2909", SECURITY_SYSTEM),
             id="retention expires after the request",
         ),
         pytest.param(
@@ -355,8 +359,8 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                     "tombstone_3101",
                     "VERIFY_RECORD_REDACTED",
                     "REDACTED",
-                    "evidence_13",
-                    "identity_service",
+                    RETENTION_EVIDENCE_ID,
+                    IDENTITY_SYSTEM,
                 )
             ],
             id="tombstone remains compliant when a later snapshot omits it",
@@ -372,7 +376,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                     "VERIFY_RECORD_PRESENT",
                     "PRESENT",
                     "",
-                    "security_service",
+                    SECURITY_SYSTEM,
                 )
             ],
             id="retained record explicitly absent",
@@ -387,8 +391,8 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                     "audit_record_3411",
                     "VERIFY_RECORD_PRESENT",
                     "PRESENT",
-                    "evidence_13",
-                    "security_service",
+                    RETENTION_EVIDENCE_ID,
+                    SECURITY_SYSTEM,
                 )
             ],
             id="retained record observed before request",

@@ -100,17 +100,14 @@ class Auditor:
         audit_at = datetime.fromisoformat(request["audit_at"])
         request_identifier = identity.normalized_identifier(request["email"]) or ""
         subject = self._identifiers_by_identifier.get(request_identifier, frozenset())
-        # A record last tied to the subject and already compliant before the request
-        # was handled by an earlier request.
-        assessments: list[_ResourceAssessment] = []
-        for key, linked_at in sorted(self._link_times(subject, audit_at).items()):
-            if linked_at < requested_at and self._was_compliant_before_request(
-                key, requested_at, audit_at
-            ):
-                continue
-            assessment = self._assessment(key, audit_at)
-            if assessment is not None:
-                assessments.append(assessment)
+        # A record last tied to the subject and already deleted or redacted before the
+        # request was handled by an earlier request; a retained record never was.
+        assessments = [
+            assessment
+            for key, linked_at in sorted(self._link_times(subject, audit_at).items())
+            if not (linked_at < requested_at and self._was_handled_before(key, requested_at))
+            and (assessment := self._assessment(key, audit_at)) is not None
+        ]
         # evaluation.validate rejects COMPLETE and INCOMPLETE rows without steps.
         if not assessments:
             return NOT_APPLICABLE, []
@@ -137,20 +134,12 @@ class Auditor:
                 link_times[key] = max(linked_at, link_times.get(key, linked_at))
         return link_times
 
-    def _was_compliant_before_request(
-        self, key: ResourceKey, requested_at: datetime, audit_at: datetime
-    ) -> bool:
-        requested_rule_and_proofs = self._rule_and_proofs(key, requested_at)
-        audit_rule_and_proofs = self._rule_and_proofs(key, audit_at)
-        if requested_rule_and_proofs is None or audit_rule_and_proofs is None:
+    def _was_handled_before(self, key: ResourceKey, at: datetime) -> bool:
+        rule_and_proofs = self._rule_and_proofs(key, at)
+        if rule_and_proofs is None:
             return False
-        requested_rule, requested_proofs = requested_rule_and_proofs
-        audit_rule, _ = audit_rule_and_proofs
-        return (
-            requested_rule.end_state != PRESENT
-            and requested_rule.end_state == audit_rule.end_state
-            and not _gap_copies(requested_rule, requested_proofs)
-        )
+        rule, proofs = rule_and_proofs
+        return rule.end_state != PRESENT and not _gap_copies(rule, proofs)
 
     def _assessment(self, key: ResourceKey, audit_at: datetime) -> _ResourceAssessment | None:
         rule_and_proofs = self._rule_and_proofs(key, audit_at)
@@ -205,18 +194,17 @@ class Auditor:
             )
             for observation in observations
         ]
-        for coverage in self._coverages_by_scope.get((system, category), ()):
-            if coverage.observed_at > at or resource_id in coverage.resource_ids:
-                continue
-            proofs.append(
-                _Proof(
-                    coverage.copy,
-                    ABSENT,
-                    coverage.observed_at,
-                    coverage.evidence_id,
-                    is_observation=False,
-                )
+        proofs.extend(
+            _Proof(
+                coverage.copy,
+                ABSENT,
+                coverage.observed_at,
+                coverage.evidence_id,
+                is_observation=False,
             )
+            for coverage in self._coverages_by_scope.get((system, category), ())
+            if coverage.observed_at <= at and resource_id not in coverage.resource_ids
+        )
         return rule, proofs
 
 
@@ -225,27 +213,15 @@ def _authorizes_deletion(_request_text: str) -> bool:
 
 
 def _gap_copies(rule: PlanRule, proofs: Iterable[_Proof]) -> set[str]:
-    return {
-        copy
-        for copy, latest in _latest_gap_proofs_by_copy(rule, proofs).items()
-        if latest.state != rule.end_state
-    }
-
-
-def _latest_gap_proofs_by_copy(rule: PlanRule, proofs: Iterable[_Proof]) -> dict[str, _Proof]:
-    relevant_proofs = (
-        proofs if rule.end_state == ABSENT else (proof for proof in proofs if proof.is_observation)
-    )
-    return _latest_by_copy(relevant_proofs)
-
-
-def _latest_by_copy(proofs: Iterable[_Proof]) -> dict[str, _Proof]:
+    # Partial snapshots omit records that still exist, so omission only proves deletion.
+    if rule.end_state != ABSENT:
+        proofs = [proof for proof in proofs if proof.is_observation]
     latest_by_copy: dict[str, _Proof] = {}
     for proof in sorted(
         proofs, key=lambda proof: (proof.observed_at, proof.is_observation), reverse=True
     ):
         latest_by_copy.setdefault(proof.copy, proof)
-    return latest_by_copy
+    return {copy for copy, latest in latest_by_copy.items() if latest.state != rule.end_state}
 
 
 def _planned_steps(assessments: Iterable[_ResourceAssessment], *, is_complete: bool) -> list[Step]:
