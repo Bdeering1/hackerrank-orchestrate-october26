@@ -13,12 +13,18 @@ ACCOUNT_SYSTEM = "account_service"
 
 
 def _step(
-    step_no: int, phase: str, resource_id: str, operation: str, state: str, evidence_id: str
+    step_no: int,
+    phase: str,
+    resource_id: str,
+    operation: str,
+    state: str,
+    evidence_id: str,
+    system_id: str = ACCOUNT_SYSTEM,
 ) -> dict[str, object]:
     return {
         "step_no": step_no,
         "phase": phase,
-        "system_id": ACCOUNT_SYSTEM,
+        "system_id": system_id,
         "resource_id": resource_id,
         "operation": operation,
         "state": state,
@@ -36,6 +42,22 @@ def _remaining_account_steps(resource_id: str, evidence_id: str) -> list[dict[st
 
 def _absent_account_steps(resource_id: str, evidence_id: str) -> list[dict[str, object]]:
     return [_step(1, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", evidence_id)]
+
+
+def _remaining_steps(resource_id: str, system_id: str) -> list[dict[str, object]]:
+    return [
+        _step(
+            1,
+            "FINDING",
+            resource_id,
+            "REPORT_REMAINING_RECORD",
+            "PRESENT",
+            "evidence_13",
+            system_id,
+        ),
+        _step(2, "REMEDIATION", resource_id, "DELETE_RECORD", "ABSENT", "", system_id),
+        _step(3, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", "", system_id),
+    ]
 
 
 @pytest.fixture(scope="module")
@@ -190,6 +212,190 @@ def test_main_writes_valid_output_and_usage(run):
     ],
 )
 def test_main_audits_account_records(run, case_id, expected_status, expected_steps):
+    _, output_dir = run
+    output_rows = {
+        row[0]: (row[1], json.loads(row[2])) for row in data_rows(output_dir / "output.csv")
+    }
+
+    assert output_rows[case_id] == (expected_status, expected_steps)
+
+
+@pytest.mark.parametrize(
+    ("case_id", "expected_status", "expected_steps"),
+    [
+        pytest.param(
+            "case_21",
+            "COMPLETE",
+            [
+                _step(
+                    1,
+                    "VERIFICATION",
+                    "audit_record_2101",
+                    "VERIFY_RECORD_PRESENT",
+                    "PRESENT",
+                    "evidence_13",
+                    "security_service",
+                )
+            ],
+            id="retained security audit record",
+        ),
+        pytest.param(
+            "case_22",
+            "INCOMPLETE",
+            _remaining_steps("audit_record_2202", "security_service"),
+            id="expired security audit record",
+        ),
+        pytest.param(
+            "case_23",
+            "COMPLETE",
+            [
+                _step(
+                    1,
+                    "VERIFICATION",
+                    "legal_hold_2303",
+                    "VERIFY_RECORD_PRESENT",
+                    "PRESENT",
+                    "evidence_13",
+                    "legal_service",
+                )
+            ],
+            id="retained legal hold record",
+        ),
+        pytest.param(
+            "case_24",
+            "INCOMPLETE",
+            _remaining_steps("legal_hold_2404", "legal_service"),
+            id="expired legal hold record",
+        ),
+        pytest.param(
+            "case_25",
+            "COMPLETE",
+            [
+                _step(
+                    1,
+                    "VERIFICATION",
+                    "tombstone_2505",
+                    "VERIFY_RECORD_REDACTED",
+                    "REDACTED",
+                    "evidence_13",
+                    "identity_service",
+                )
+            ],
+            id="clean tombstone",
+        ),
+        pytest.param(
+            "case_26",
+            "INCOMPLETE",
+            [
+                _step(
+                    1,
+                    "FINDING",
+                    "tombstone_2606",
+                    "REPORT_EXPOSED_PII",
+                    "PRESENT",
+                    "evidence_13",
+                    "identity_service",
+                ),
+                _step(
+                    2,
+                    "REMEDIATION",
+                    "tombstone_2606",
+                    "REDACT_RECORD",
+                    "REDACTED",
+                    "",
+                    "identity_service",
+                ),
+                _step(
+                    3,
+                    "VERIFICATION",
+                    "tombstone_2606",
+                    "VERIFY_RECORD_REDACTED",
+                    "REDACTED",
+                    "",
+                    "identity_service",
+                ),
+            ],
+            id="tombstone exposing identifiers",
+        ),
+        pytest.param(
+            "case_28",
+            "COMPLETE",
+            [
+                _step(
+                    1,
+                    "VERIFICATION",
+                    "audit_record_2808",
+                    "VERIFY_RECORD_PRESENT",
+                    "PRESENT",
+                    "evidence_13",
+                    "security_service",
+                )
+            ],
+            id="retained record remains compliant when a later snapshot omits it",
+        ),
+        pytest.param(
+            "case_29",
+            "INCOMPLETE",
+            _remaining_steps("audit_record_2909", "security_service"),
+            id="retention expires after the request",
+        ),
+        pytest.param(
+            "case_30",
+            "COMPLETE",
+            _absent_account_steps("account_omitted", "evidence_06"),
+            id="account absence predates its uncitable lookup",
+        ),
+        pytest.param(
+            "case_31",
+            "COMPLETE",
+            [
+                _step(
+                    1,
+                    "VERIFICATION",
+                    "tombstone_3101",
+                    "VERIFY_RECORD_REDACTED",
+                    "REDACTED",
+                    "evidence_13",
+                    "identity_service",
+                )
+            ],
+            id="tombstone remains compliant when a later snapshot omits it",
+        ),
+        pytest.param(
+            "case_32",
+            "INCOMPLETE",
+            [
+                _step(
+                    1,
+                    "VERIFICATION",
+                    "audit_record_3210",
+                    "VERIFY_RECORD_PRESENT",
+                    "PRESENT",
+                    "",
+                    "security_service",
+                )
+            ],
+            id="retained record explicitly absent",
+        ),
+        pytest.param(
+            "case_34",
+            "COMPLETE",
+            [
+                _step(
+                    1,
+                    "VERIFICATION",
+                    "audit_record_3411",
+                    "VERIFY_RECORD_PRESENT",
+                    "PRESENT",
+                    "evidence_13",
+                    "security_service",
+                )
+            ],
+            id="retained record observed before request",
+        ),
+    ],
+)
+def test_main_audits_retained_records_and_tombstones(run, case_id, expected_status, expected_steps):
     _, output_dir = run
     output_rows = {
         row[0]: (row[1], json.loads(row[2])) for row in data_rows(output_dir / "output.csv")

@@ -5,6 +5,8 @@ import importlib
 import pkgutil
 import typing
 
+from ghost_audit.model import PRESENT
+
 if typing.TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
@@ -20,6 +22,12 @@ class Category:
     record_types: frozenset[str]
     log_events: frozenset[str]
     existing_state: Callable[[Mapping[str, object]], str]
+    retention_end_field: str | None = None
+
+
+def present_state(_record: Mapping[str, object]) -> str:
+    """Return the normal state for a present record."""
+    return PRESENT
 
 
 def discovered_categories() -> tuple[Category, ...]:

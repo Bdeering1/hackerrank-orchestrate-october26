@@ -8,6 +8,7 @@ if typing.TYPE_CHECKING:
 
 PRESENT = "PRESENT"
 ABSENT = "ABSENT"
+REDACTED = "REDACTED"
 PRIMARY_COPY = "primary"
 
 
@@ -23,6 +24,7 @@ class Observation:
     identifiers: frozenset[str]
     observed_at: datetime
     evidence_id: str
+    retention_end: datetime | None
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

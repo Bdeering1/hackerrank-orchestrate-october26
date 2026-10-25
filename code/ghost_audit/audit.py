@@ -5,12 +5,16 @@ import typing
 from datetime import datetime
 
 from ghost_audit import identity
-from ghost_audit.model import ABSENT, Step
+from ghost_audit.model import ABSENT, PRESENT, REDACTED, Step
 from ghost_audit.output_format import (
     DELETE_RECORD,
     OPERATION_ORDER,
+    REDACT_RECORD,
+    REPORT_EXPOSED_PII,
     REPORT_REMAINING_RECORD,
     VERIFY_RECORD_ABSENT,
+    VERIFY_RECORD_PRESENT,
+    VERIFY_RECORD_REDACTED,
     Operation,
 )
 
@@ -33,13 +37,15 @@ class PlanRule:
     """The end state a rule action requires and the steps that reach and check it."""
 
     end_state: str
-    finding: Operation
-    remediation: Operation
+    finding: Operation | None
+    remediation: Operation | None
     verification: Operation
 
 
 PLAN_RULES = {
     "DELETE": PlanRule(ABSENT, REPORT_REMAINING_RECORD, DELETE_RECORD, VERIFY_RECORD_ABSENT),
+    "REDACT": PlanRule(REDACTED, REPORT_EXPOSED_PII, REDACT_RECORD, VERIFY_RECORD_REDACTED),
+    "RETAIN": PlanRule(PRESENT, None, None, VERIFY_RECORD_PRESENT),
 }
 
 
@@ -96,12 +102,15 @@ class Auditor:
         subject = self._identifiers_by_identifier.get(request_identifier, frozenset())
         # A record last tied to the subject and already compliant before the request
         # was handled by an earlier request.
-        assessments = [
-            assessment
-            for key, linked_at in sorted(self._link_times(subject, audit_at).items())
-            if not (linked_at < requested_at and self._is_compliant(key, requested_at))
-            and (assessment := self._assessment(key, audit_at)) is not None
-        ]
+        assessments: list[_ResourceAssessment] = []
+        for key, linked_at in sorted(self._link_times(subject, audit_at).items()):
+            if linked_at < requested_at and self._was_compliant_before_request(
+                key, requested_at, audit_at
+            ):
+                continue
+            assessment = self._assessment(key, audit_at)
+            if assessment is not None:
+                assessments.append(assessment)
         # evaluation.validate rejects COMPLETE and INCOMPLETE rows without steps.
         if not assessments:
             return NOT_APPLICABLE, []
@@ -128,9 +137,20 @@ class Auditor:
                 link_times[key] = max(linked_at, link_times.get(key, linked_at))
         return link_times
 
-    def _is_compliant(self, key: ResourceKey, at: datetime) -> bool:
-        rule_and_proofs = self._rule_and_proofs(key, at)
-        return rule_and_proofs is not None and not _gap_copies(*rule_and_proofs)
+    def _was_compliant_before_request(
+        self, key: ResourceKey, requested_at: datetime, audit_at: datetime
+    ) -> bool:
+        requested_rule_and_proofs = self._rule_and_proofs(key, requested_at)
+        audit_rule_and_proofs = self._rule_and_proofs(key, audit_at)
+        if requested_rule_and_proofs is None or audit_rule_and_proofs is None:
+            return False
+        requested_rule, requested_proofs = requested_rule_and_proofs
+        audit_rule, _ = audit_rule_and_proofs
+        return (
+            requested_rule.end_state != PRESENT
+            and requested_rule.end_state == audit_rule.end_state
+            and not _gap_copies(requested_rule, requested_proofs)
+        )
 
     def _assessment(self, key: ResourceKey, audit_at: datetime) -> _ResourceAssessment | None:
         rule_and_proofs = self._rule_and_proofs(key, audit_at)
@@ -171,6 +191,10 @@ class Auditor:
             return None
         system, resource_id = key
         category = observations[0].category
+        action = self._dataset.required_actions[category]
+        if action == "RETAIN" and _retention_expired(observations, at):
+            action = "DELETE"
+        rule = PLAN_RULES[action]
         proofs = [
             _Proof(
                 observation.copy,
@@ -181,18 +205,19 @@ class Auditor:
             )
             for observation in observations
         ]
-        proofs.extend(
-            _Proof(
-                coverage.copy,
-                ABSENT,
-                coverage.observed_at,
-                coverage.evidence_id,
-                is_observation=False,
+        for coverage in self._coverages_by_scope.get((system, category), ()):
+            if coverage.observed_at > at or resource_id in coverage.resource_ids:
+                continue
+            proofs.append(
+                _Proof(
+                    coverage.copy,
+                    ABSENT,
+                    coverage.observed_at,
+                    coverage.evidence_id,
+                    is_observation=False,
+                )
             )
-            for coverage in self._coverages_by_scope.get((system, category), ())
-            if coverage.observed_at <= at and resource_id not in coverage.resource_ids
-        )
-        return PLAN_RULES[self._dataset.required_actions[category]], proofs
+        return rule, proofs
 
 
 def _authorizes_deletion(_request_text: str) -> bool:
@@ -200,12 +225,27 @@ def _authorizes_deletion(_request_text: str) -> bool:
 
 
 def _gap_copies(rule: PlanRule, proofs: Iterable[_Proof]) -> set[str]:
+    return {
+        copy
+        for copy, latest in _latest_gap_proofs_by_copy(rule, proofs).items()
+        if latest.state != rule.end_state
+    }
+
+
+def _latest_gap_proofs_by_copy(rule: PlanRule, proofs: Iterable[_Proof]) -> dict[str, _Proof]:
+    relevant_proofs = (
+        proofs if rule.end_state == ABSENT else (proof for proof in proofs if proof.is_observation)
+    )
+    return _latest_by_copy(relevant_proofs)
+
+
+def _latest_by_copy(proofs: Iterable[_Proof]) -> dict[str, _Proof]:
     latest_by_copy: dict[str, _Proof] = {}
     for proof in sorted(
         proofs, key=lambda proof: (proof.observed_at, proof.is_observation), reverse=True
     ):
         latest_by_copy.setdefault(proof.copy, proof)
-    return {copy for copy, latest in latest_by_copy.items() if latest.state != rule.end_state}
+    return latest_by_copy
 
 
 def _planned_steps(assessments: Iterable[_ResourceAssessment], *, is_complete: bool) -> list[Step]:
@@ -213,8 +253,10 @@ def _planned_steps(assessments: Iterable[_ResourceAssessment], *, is_complete: b
     for assessment in assessments:
         rule = assessment.rule
         if assessment.has_gap:
-            steps.append(_step(assessment, rule.finding, assessment.evidence_id))
-            steps.append(_step(assessment, rule.remediation, ""))
+            if rule.finding is not None:
+                steps.append(_step(assessment, rule.finding, assessment.evidence_id))
+            if rule.remediation is not None:
+                steps.append(_step(assessment, rule.remediation, ""))
         verification_evidence = assessment.evidence_id if is_complete else ""
         steps.append(_step(assessment, rule.verification, verification_evidence))
     return sorted(
@@ -225,6 +267,14 @@ def _planned_steps(assessments: Iterable[_ResourceAssessment], *, is_complete: b
             step.resource_id,
         ),
     )
+
+
+def _retention_expired(observations: Iterable[Observation], at: datetime) -> bool:
+    retention_end = max(
+        (observation.retention_end for observation in observations if observation.retention_end),
+        default=None,
+    )
+    return retention_end is not None and retention_end <= at
 
 
 def _step(assessment: _ResourceAssessment, operation: Operation, evidence_id: str) -> Step:

@@ -19,3 +19,15 @@ case_17,lucia.herrera@zoho.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00
 case_18,farah.anwar@fastmail.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
 case_19,jonas.berg@outlook.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
 case_20,amara.okafor@zoho.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_21,security.retained@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_22,security.expired@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_23,legal.retained@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_24,legal.expired@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_25,tombstone.clean@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_26,tombstone.exposed@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_28,security.missing@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_29,security.expiring@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_30,account.omitted@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_31,tombstone.missing@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_32,security.absent@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_34,security.prior@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
