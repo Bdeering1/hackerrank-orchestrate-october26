@@ -11,7 +11,9 @@ if typing.TYPE_CHECKING:
 
 HEADER = ("case_id", "deletion_status", "steps_json")
 VALID_STATUSES = frozenset({"COMPLETE", "INCOMPLETE", "NOT_APPLICABLE"})
-STEP_FIELDS = {"step_no", "phase", "system_id", "resource_id", "operation", "state", "evidence_id"}
+STEP_FIELDS = frozenset(
+    {"step_no", "phase", "system_id", "resource_id", "operation", "state", "evidence_id"}
+)
 ALLOWED_OPERATIONS = (
     ("FINDING", "REPORT_REMAINING_RECORD", "PRESENT"),
     ("FINDING", "REPORT_EXPOSED_PII", "PRESENT"),
@@ -76,11 +78,11 @@ def validation_errors(
             errors.append(_row_error(line_number, case_id, "unexpected case_id"))
 
         try:
-            case_number = _case_number(case_id)
+            parsed_case_number = case_number(case_id)
         except ValueError:
             errors.append(_row_error(line_number, case_id, "malformed case_id"))
         else:
-            case_positions.append((case_number, line_number, case_id))
+            case_positions.append((parsed_case_number, line_number, case_id))
 
         deletion_status = row[1]
         if deletion_status not in VALID_STATUSES:
@@ -98,7 +100,7 @@ def validation_errors(
 
     errors.extend(
         f"missing case_id: {case_id}"
-        for case_id in sorted(requested_ids - found_ids, key=_case_number)
+        for case_id in sorted(requested_ids - found_ids, key=case_number)
     )
     errors.extend(_sort_errors(case_positions))
     return errors
@@ -115,7 +117,8 @@ def data_rows(path: Path) -> list[list[str]]:
     return csv_rows(path)[1:]
 
 
-def _case_number(case_id: str) -> int:
+def case_number(case_id: str) -> int:
+    """Return the number in a `case_<n>` ID, or raise ValueError if malformed."""
     prefix = "case_"
     suffix = case_id.removeprefix(prefix)
     if suffix == case_id or not suffix.isdecimal():
@@ -200,7 +203,7 @@ def _step_with_shape(raw_step: object) -> Step | None:
     if not isinstance(raw_step, dict):
         return None
     raw_fields = typing.cast("dict[str, object]", raw_step)
-    if set(raw_fields) != STEP_FIELDS:
+    if frozenset(raw_fields) != STEP_FIELDS:
         return None
     step_no = raw_fields["step_no"]
     if not isinstance(step_no, int) or isinstance(step_no, bool):

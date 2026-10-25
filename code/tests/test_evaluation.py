@@ -13,6 +13,9 @@ from evaluation.validate import csv_rows, validation_errors
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_OUTPUT_PATH = REPO_ROOT / "dataset" / "sample_output.csv"
 FIRST_CASE_ID = "case_01"
+MULTI_STEP_CASE_ID = "case_03"
+INCOMPLETE_CASE_ID = "case_05"
+CITED_EVIDENCE_ID = "evidence_54"
 PREDICTIONS_FILENAME = "predictions.csv"
 CsvRows = list[list[str]]
 RowsMutator = Callable[[CsvRows], CsvRows]
@@ -119,9 +122,9 @@ def _with_non_integer_step_no(rows: CsvRows) -> CsvRows:
 
 
 def _with_non_consecutive_step_no(rows: CsvRows) -> CsvRows:
-    steps = _steps(rows, "case_03")
+    steps = _steps(rows, MULTI_STEP_CASE_ID)
     steps[1]["step_no"] = 5
-    return _set_steps(rows, "case_03", steps)
+    return _set_steps(rows, MULTI_STEP_CASE_ID, steps)
 
 
 def _with_disallowed_step_combination(rows: CsvRows) -> CsvRows:
@@ -129,29 +132,17 @@ def _with_disallowed_step_combination(rows: CsvRows) -> CsvRows:
 
 
 def _with_out_of_order_steps(rows: CsvRows) -> CsvRows:
-    steps = _steps(rows, "case_03")
+    steps = _steps(rows, MULTI_STEP_CASE_ID)
     steps[0], steps[1] = steps[1], steps[0]
     for step_position, step in enumerate(steps, start=1):
         step["step_no"] = step_position
-    return _set_steps(rows, "case_03", steps)
+    return _set_steps(rows, MULTI_STEP_CASE_ID, steps)
 
 
 def _with_steps_for_not_applicable(rows: CsvRows) -> CsvRows:
     row = rows[1]
     row[1] = "NOT_APPLICABLE"
-    row[2] = json.dumps(
-        [
-            {
-                "step_no": 1,
-                "phase": "VERIFICATION",
-                "system_id": "account_service",
-                "resource_id": "account_001",
-                "operation": "VERIFY_RECORD_ABSENT",
-                "state": "ABSENT",
-                "evidence_id": "",
-            }
-        ]
-    )
+    row[2] = json.dumps([_verification_step(1, "account_001", "")])
     return rows
 
 
@@ -169,15 +160,15 @@ def _with_complete_without_evidence(rows: CsvRows) -> CsvRows:
 
 
 def _with_incomplete_finding_without_evidence(rows: CsvRows) -> CsvRows:
-    return _update_step(rows, "case_05", 0, {"evidence_id": ""})
+    return _update_step(rows, INCOMPLETE_CASE_ID, 0, {"evidence_id": ""})
 
 
 def _with_incomplete_remediation_evidence(rows: CsvRows) -> CsvRows:
-    return _update_step(rows, "case_05", 1, {"evidence_id": "evidence_54"})
+    return _update_step(rows, INCOMPLETE_CASE_ID, 1, {"evidence_id": CITED_EVIDENCE_ID})
 
 
 def _with_incomplete_verification_evidence(rows: CsvRows) -> CsvRows:
-    return _update_step(rows, "case_05", 2, {"evidence_id": "evidence_54"})
+    return _update_step(rows, INCOMPLETE_CASE_ID, 2, {"evidence_id": CITED_EVIDENCE_ID})
 
 
 def _with_unknown_evidence(rows: CsvRows) -> CsvRows:
@@ -274,17 +265,19 @@ def test_validation_uses_numeric_case_order(tmp_path: Path) -> None:
     evidence_time = datetime.fromisoformat("2026-01-01T00:00:00Z")
     audit_times = {"case_99": audit_time, "case_100": audit_time}
 
-    assert validation_errors(predictions_path, audit_times, {"evidence_54": evidence_time}) == []
+    assert (
+        validation_errors(predictions_path, audit_times, {CITED_EVIDENCE_ID: evidence_time}) == []
+    )
 
     rows[1], rows[2] = rows[2], rows[1]
     _write_rows(predictions_path, rows)
 
-    assert validation_errors(predictions_path, audit_times, {"evidence_54": evidence_time}) == [
+    assert validation_errors(predictions_path, audit_times, {CITED_EVIDENCE_ID: evidence_time}) == [
         "line 3 (case_99): rows are not sorted by case number"
     ]
 
 
-def _score_step(step_no: int, resource_id: str, evidence_id: str) -> dict[str, object]:
+def _verification_step(step_no: int, resource_id: str, evidence_id: str) -> dict[str, object]:
     return {
         "step_no": step_no,
         "phase": "VERIFICATION",
@@ -294,6 +287,10 @@ def _score_step(step_no: int, resource_id: str, evidence_id: str) -> dict[str, o
         "state": "ABSENT",
         "evidence_id": evidence_id,
     }
+
+
+FIRST_EXPECTED_STEP = _verification_step(1, "account_001", "evidence_01")
+SECOND_EXPECTED_STEP = _verification_step(2, "account_002", "evidence_02")
 
 
 def _score_rows(status: str, steps: list[dict[str, object]]) -> CsvRows:
@@ -306,41 +303,30 @@ def _score_rows(status: str, steps: list[dict[str, object]]) -> CsvRows:
 @pytest.mark.parametrize(
     ("status", "steps", "metric", "expected_value"),
     [
-        pytest.param(
-            "INCOMPLETE",
-            [_score_step(1, "account_001", "evidence_01")],
-            "status",
-            0.0,
-            id="status",
-        ),
+        pytest.param("INCOMPLETE", [FIRST_EXPECTED_STEP], "status", 0.0, id="status"),
         pytest.param(
             "COMPLETE",
-            [
-                {
-                    **_score_step(1, "account_001", "evidence_01"),
-                    "operation": "VERIFY_RECORD_PRESENT",
-                }
-            ],
+            [{**FIRST_EXPECTED_STEP, "operation": "VERIFY_RECORD_PRESENT"}],
             "step",
             0.0,
             id="step",
         ),
         pytest.param(
             "COMPLETE",
-            [_score_step(1, "account_001", "evidence_02")],
+            [{**FIRST_EXPECTED_STEP, "evidence_id": "evidence_02"}],
             "field",
             pytest.approx(1 / 3),
             id="field",
         ),
         pytest.param(
             "COMPLETE",
-            [
-                _score_step(1, "account_002", "evidence_02"),
-                _score_step(2, "account_001", "evidence_01"),
-            ],
+            [{**SECOND_EXPECTED_STEP, "step_no": 1}, {**FIRST_EXPECTED_STEP, "step_no": 2}],
             "sequence",
             0.0,
             id="sequence",
+        ),
+        pytest.param(
+            "COMPLETE", [FIRST_EXPECTED_STEP], "composite", pytest.approx(75.0), id="composite"
         ),
     ],
 )
@@ -353,11 +339,7 @@ def test_case_scores_partial_metrics(
 ) -> None:
     labels_path = tmp_path / "labels.csv"
     predictions_path = tmp_path / PREDICTIONS_FILENAME
-    expected_steps = [
-        _score_step(1, "account_001", "evidence_01"),
-        _score_step(2, "account_002", "evidence_02"),
-    ]
-    _write_rows(labels_path, _score_rows("COMPLETE", expected_steps))
+    _write_rows(labels_path, _score_rows("COMPLETE", [FIRST_EXPECTED_STEP, SECOND_EXPECTED_STEP]))
     _write_rows(predictions_path, _score_rows(status, steps))
 
     score = case_scores(predictions_path, labels_path)[0]

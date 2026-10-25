@@ -36,7 +36,7 @@ def main(argv: list[str]) -> int:
 
 
 def _audit_times() -> dict[str, datetime]:
-    return {row[0]: _timestamp(row[5]) for row in data_rows(REQUESTS_PATH)}
+    return {row[0]: datetime.fromisoformat(row[5]) for row in data_rows(REQUESTS_PATH)}
 
 
 def _evidence_times() -> dict[str, datetime]:
@@ -47,11 +47,7 @@ def _evidence_times() -> dict[str, datetime]:
 
 
 def _times_from(path: Path, timestamp_index: int) -> dict[str, datetime]:
-    return {row[0]: _timestamp(row[timestamp_index]) for row in data_rows(path)}
-
-
-def _timestamp(value: str) -> datetime:
-    return datetime.fromisoformat(value)
+    return {row[0]: datetime.fromisoformat(row[timestamp_index]) for row in data_rows(path)}
 
 
 class _Arguments(argparse.Namespace):

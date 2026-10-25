@@ -5,10 +5,10 @@ import typing
 from collections import Counter
 from dataclasses import dataclass
 
-from evaluation.validate import Step, data_rows
+from evaluation.validate import Step, case_number, data_rows
 
 if typing.TYPE_CHECKING:
-    from collections.abc import Collection, Iterable
+    from collections.abc import Callable, Collection, Iterable
     from pathlib import Path
 
 
@@ -17,23 +17,25 @@ class MetricDefinition:
     label: str
     weight: float
     definition: str
-    attribute: str
+    value: Callable[[CaseScore], float]
 
 
 METRICS = (
-    MetricDefinition("Status", 0.40, "Exact deletion-status match.", "status"),
-    MetricDefinition("Step", 0.30, "Multiset F1 over steps, ignoring step_no.", "step"),
+    MetricDefinition("Status", 0.40, "Exact deletion-status match.", lambda score: score.status),
+    MetricDefinition(
+        "Step", 0.30, "Multiset F1 over steps, ignoring step_no.", lambda score: score.step
+    ),
     MetricDefinition(
         "Field",
         0.15,
         "Operation, state, and evidence agreement for steps aligned by phase, system, and resource.",
-        "field",
+        lambda score: score.field,
     ),
     MetricDefinition(
         "Sequence",
         0.15,
         "Exact positional step matches over the longer step list.",
-        "sequence",
+        lambda score: score.sequence,
     ),
 )
 
@@ -47,7 +49,11 @@ class CaseScore:
     step: float
     field: float
     sequence: float
-    composite: float
+
+    @property
+    def composite(self) -> float:
+        """Weighted 0-100 composite of the metrics."""
+        return 100 * sum(metric.weight * metric.value(self) for metric in METRICS)
 
 
 def case_scores(predictions_path: Path, labels_path: Path) -> list[CaseScore]:
@@ -58,43 +64,26 @@ def case_scores(predictions_path: Path, labels_path: Path) -> list[CaseScore]:
     for case_id, (expected_status, expected_steps) in labels.items():
         predicted = predictions.get(case_id)
         if predicted is None:
-            predicted_status: str | None = None
-            status = step = field = sequence = 0.0
-        else:
-            predicted_status, predicted_steps = predicted
-            status = float(predicted_status == expected_status)
-            step = _step_f1(predicted_steps, expected_steps)
-            field = _field_score(predicted_steps, expected_steps)
-            sequence = _sequence_score(predicted_steps, expected_steps)
-        composite = 100 * sum(
-            metric.weight * _metric_value(metric.attribute, status, step, field, sequence)
-            for metric in METRICS
-        )
+            scores.append(CaseScore(case_id, expected_status, None, 0.0, 0.0, 0.0, 0.0))
+            continue
+        predicted_status, predicted_steps = predicted
         scores.append(
             CaseScore(
                 case_id,
                 expected_status,
                 predicted_status,
-                status,
-                step,
-                field,
-                sequence,
-                composite,
+                float(predicted_status == expected_status),
+                _step_f1(predicted_steps, expected_steps),
+                _field_score(predicted_steps, expected_steps),
+                _sequence_score(predicted_steps, expected_steps),
             )
         )
-    return sorted(scores, key=lambda score: _case_number(score.case_id))
+    return sorted(scores, key=lambda score: case_number(score.case_id))
 
 
 def render_markdown(scores: Collection[CaseScore]) -> str:
     """Render scores as the evaluation report's Markdown section."""
     score_list = list(scores)
-    metric_means = {
-        metric.attribute: _mean(
-            _metric_value(metric.attribute, score.status, score.step, score.field, score.sequence)
-            for score in score_list
-        )
-        for metric in METRICS
-    }
     average_composite = _mean(score.composite for score in score_list)
     status_match_count = sum(score.status == 1 for score in score_list)
     lines = [
@@ -104,7 +93,8 @@ def render_markdown(scores: Collection[CaseScore]) -> str:
         "| --- | ---: | --- | ---: |",
     ]
     lines.extend(
-        f"| {metric.label} | {metric.weight:.0%} | {metric.definition} | {metric_means[metric.attribute]:.1%} |"
+        f"| {metric.label} | {metric.weight:.0%} | {metric.definition} | "
+        f"{_mean(metric.value(score) for score in score_list):.1%} |"
         for metric in METRICS
     )
     lines.extend(
@@ -124,12 +114,6 @@ def render_markdown(scores: Collection[CaseScore]) -> str:
         for score in score_list
     )
     return "\n".join(lines) + "\n"
-
-
-def _metric_value(
-    attribute: str, status: float, step: float, field: float, sequence: float
-) -> float:
-    return {"status": status, "step": step, "field": field, "sequence": sequence}[attribute]
 
 
 def _rows_by_case(path: Path) -> dict[str, tuple[str, list[Step]]]:
@@ -204,10 +188,6 @@ def _all_fields_match(predicted_step: Step, expected_step: Step) -> bool:
     return predicted_step["step_no"] == expected_step["step_no"] and _step_content(
         predicted_step
     ) == _step_content(expected_step)
-
-
-def _case_number(case_id: str) -> int:
-    return int(case_id.removeprefix("case_"))
 
 
 def _mean(values: Iterable[float]) -> float:
