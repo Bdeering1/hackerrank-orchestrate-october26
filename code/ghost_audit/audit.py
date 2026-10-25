@@ -5,7 +5,7 @@ import typing
 from datetime import datetime, timedelta
 
 from ghost_audit import identity
-from ghost_audit.categories import account, backup, data_flow
+from ghost_audit.categories import account, analytics_profile, backup, data_flow
 from ghost_audit.model import ABSENT, ANONYMIZED, BLOCKED, DISABLED, PRESENT, REDACTED, Step
 from ghost_audit.output_format import (
     ANONYMIZE_RECORD,
@@ -105,6 +105,18 @@ class _ResourceAssessment:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class _Nomination:
+    """Deletion-worker claims that can nominate a subject's resource on one system.
+
+    Without a default category, a nominee needs an observation that sets its category.
+    """
+
+    system: str
+    claims: tuple[Claim, ...]
+    default_category: str | None = None
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class _RequestTimes:
     requested_at: datetime
     audit_at: datetime
@@ -134,13 +146,29 @@ class Auditor:
             for claim in dataset.claims
             if claim.event_type == LINK_RESOURCE_IDENTITY
         ]
-        self._account_deletion_claims = [
+        account_deletion_claims = tuple(
             claim
             for claim in dataset.claims
             if claim.source_system == DELETION_WORKER
             and claim.event_type == DELETE_RECORD.name
             and claim.target_system == account.CATEGORY.default_system
-        ]
+        )
+        targeted_anonymization_claims = tuple(
+            claim
+            for claim in dataset.claims
+            if claim.source_system == DELETION_WORKER
+            and claim.event_type == ANONYMIZE_RECORD.name
+            and claim.target_system == analytics_profile.CATEGORY.default_system
+            and TARGET_RESOURCE_MARKER in claim.details
+        )
+        self._nominations = (
+            _Nomination(
+                account.CATEGORY.default_system,
+                account_deletion_claims,
+                account.CATEGORY.rule_category,
+            ),
+            _Nomination(analytics_profile.CATEGORY.default_system, targeted_anonymization_claims),
+        )
         self._request_times_by_subject: dict[frozenset[str], list[_RequestTimes]] = {}
         for request in dataset.requests:
             if authorizations[request["request_text"]]:
@@ -168,22 +196,24 @@ class Auditor:
             for key in linked_keys
             if (assessment := self._assessment(key, audit_at)) is not None
         ]
-        has_linked_account = any(
-            system == account.CATEGORY.default_system for system, _ in linked_keys
-        )
-        nominated_key = (
-            None if has_linked_account else self._nominated_account(request, subject, audit_at)
-        )
-        if nominated_key is not None:
+        linked_systems = {system for system, _ in linked_keys}
+        for nomination in self._nominations:
+            if nomination.system in linked_systems:
+                continue
+            nominated_key = self._nominated_key(request, subject, audit_at, nomination.claims)
+            if nominated_key is None:
+                continue
             assessment = self._assessment(
-                nominated_key, audit_at, default_category=account.CATEGORY.rule_category
+                nominated_key, audit_at, default_category=nomination.default_category
             )
             if assessment is not None:
                 assessments.append(assessment)
+        is_complete = not any(assessment.has_gap for assessment in assessments)
+        if is_complete:
+            assessments = [assessment for assessment in assessments if assessment.evidence_id]
         # evaluation.validate rejects COMPLETE and INCOMPLETE rows without steps.
         if not assessments:
             return NOT_APPLICABLE, []
-        is_complete = not any(assessment.has_gap for assessment in assessments)
         steps = _planned_steps(assessments, is_complete=is_complete)
         return (COMPLETE if is_complete else INCOMPLETE), steps
 
@@ -224,23 +254,27 @@ class Auditor:
         )
         return None if previous_times is None else previous_times.audit_at
 
-    def _nominated_account(
-        self, request: Mapping[str, str], subject: frozenset[str], audit_at: datetime
+    def _nominated_key(
+        self,
+        request: Mapping[str, str],
+        subject: frozenset[str],
+        audit_at: datetime,
+        claims: Iterable[Claim],
     ) -> ResourceKey | None:
         reported_at = datetime.fromisoformat(request["reported_at"])
         candidates = [
             claim
-            for claim in self._account_deletion_claims
+            for claim in claims
             if claim.event_time <= audit_at
             and _is_in_nomination_window(claim, reported_at)
             and not self._is_linked_to_other_user(claim.resource_key, subject, audit_at)
         ]
         expected_result = REPORTED_RESULT_BY_STATUS.get(request["reported_status"])
         matching = [claim for claim in candidates if claim.reported_result == expected_result]
-        resource_ids = {claim.resource_id for claim in matching or candidates}
-        if len(resource_ids) != 1:
+        resource_keys = {claim.resource_key for claim in matching or candidates}
+        if len(resource_keys) != 1:
             return None
-        return account.CATEGORY.default_system, resource_ids.pop()
+        return resource_keys.pop()
 
     def _is_linked_to_other_user(
         self, key: ResourceKey, subject: frozenset[str], audit_at: datetime
@@ -286,10 +320,13 @@ class Auditor:
             ),
             default=None,
         )
-        if citation is None:
+        # A finding must cite evidence, but an INCOMPLETE case's verification steps cite none,
+        # so a compliant resource seen only in files captured after audit_at is still verified.
+        if citation is None and (has_gap or not proofs):
             return None
         system, resource_id = key
-        return _ResourceAssessment(system, resource_id, rule, has_gap, citation.evidence_id)
+        evidence_id = "" if citation is None else citation.evidence_id
+        return _ResourceAssessment(system, resource_id, rule, has_gap, evidence_id)
 
     def _rule_and_proofs(
         self, key: ResourceKey, at: datetime, default_category: str | None

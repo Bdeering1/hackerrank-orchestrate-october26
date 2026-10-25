@@ -8,3 +8,6 @@
 2026-09-04T10:08:00Z level=INFO service=support_platform trace_id=tr-2802 resource_id=support_2801 event=support_ticket_read_completed customer_reference=user_38 message_text="[REDACTED]"
 2026-09-04T10:09:00Z level=DEBUG service=support_platform trace_id=tr-2801 event=contact_query_started lookup_key=support.contact@example.com source=legacy_contact_index
 2026-09-04T10:10:00Z level=INFO service=support_platform trace_id=tr-2801 resource_id=support_2801 event=contact_query_completed rows=1 latency_ms=23
+2026-09-04T10:11:00Z level=INFO service=analytics_platform trace_id=tr-3208 resource_id=analytics_3208 event=analytics_profile_read_completed email=security.uncited@example.com
+2026-09-04T10:12:00Z level=INFO service=support_platform trace_id=tr-3309 resource_id=support_3309 event=support_ticket_read_completed customer_reference=user_109 requester_name=null requester_email=null requester_phone=null
+2026-09-04T10:13:00Z level=INFO service=analytics_platform trace_id=tr-3410 resource_id=analytics_3410 event=analytics_profile_read_completed customer_reference=null email=null phone=null email_hash=null audience_cohort=home_lifestyle

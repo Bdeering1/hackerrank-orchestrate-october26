@@ -1,0 +1,25 @@
+{
+  "exported_at": "2026-09-10T12:00:00Z",
+  "source": "records_assurance_service",
+  "snapshots": [
+    {
+      "captured_at": "2026-09-04T12:00:00Z",
+      "data_store": "security_service",
+      "collection": "security_audit_events",
+      "records": [
+        {
+          "resource_id": "audit_record_3208",
+          "subject_reference": "user_108",
+          "event_name": "account_deletion_reviewed",
+          "actor_type": "automated_privacy_workflow"
+        },
+        {
+          "resource_id": "audit_record_3309",
+          "subject_reference": "user_109",
+          "event_name": "account_deletion_reviewed",
+          "actor_type": "automated_privacy_workflow"
+        }
+      ]
+    }
+  ]
+}

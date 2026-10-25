@@ -28,3 +28,4 @@ activity_26,2026-09-08T07:15:00Z,DELETE_RECORD,deletion_worker,support_service,t
 activity_27,2026-09-08T09:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_3232,SUCCESS,Deletion worker submitted primary profile account_3232 to account_service.
 activity_28,2026-09-08T09:05:00Z,DELETE_RECORD,deletion_worker,account_service,account_3233,SUCCESS,Deletion worker submitted primary profile account_3233 to account_service.
 activity_29,2026-09-08T09:30:00Z,LINK_RESOURCE_IDENTITY,data_catalog,account_service,account_3233,SUCCESS,Data catalog linked account_3233 (account_3233) to leila.haddad@yahoo.com and user_01.
+activity_30,2026-09-02T07:54:00Z,ANONYMIZE_RECORD,deletion_worker,analytics_platform,analytics_3410,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: analytics_3410.
