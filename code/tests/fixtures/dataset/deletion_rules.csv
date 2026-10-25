@@ -1,0 +1,2 @@
+rule_id,data_category,condition,required_action
+rule_01,USER_PROFILE,Always,DELETE

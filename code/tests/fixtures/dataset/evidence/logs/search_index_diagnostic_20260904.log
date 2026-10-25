@@ -1,0 +1,1 @@
+2026-09-04T10:00:00Z INFO service=search_index_service event=record_lookup seq=1 system="account_service" resource_id="account_1717" record_type="USER_PROFILE" result="NOT_FOUND" subject_reference="jonas.berg@outlook.com"

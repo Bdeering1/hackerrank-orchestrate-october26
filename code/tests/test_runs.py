@@ -1,19 +1,20 @@
 import csv
 import json
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
 
 from evaluation import main as evaluation_main
 from evaluation import runs
-from evaluation.main import main
+from evaluation.main import main, write_suite
 from evaluation.runs import (
     FullSetPaths,
     PromotionRefusedError,
     compare_runs,
     promote_run,
+    record_holdout_run,
     record_run,
 )
 from evaluation.validate import csv_rows
@@ -25,7 +26,7 @@ EXPENSIVE_USAGE = {
     "models": [
         {
             "provider": "anthropic",
-            "model": "claude-sonnet-5-5",
+            "model": "claude-sonnet-5.5",
             "calls": 1,
             "input_tokens": 1_000_000,
             "output_tokens": 0,
@@ -35,8 +36,9 @@ EXPENSIVE_USAGE = {
 SLIGHTLY_CHEAPER_USAGE = {"models": [{**EXPENSIVE_USAGE["models"][0], "input_tokens": 900_000}]}
 
 
-@pytest.fixture
-def record(tmp_path: Path):
+def _recorder(
+    tmp_path: Path, record_saved_run: Callable[[runs.RunFiles], str]
+) -> Callable[..., str]:
     def record_rows(
         rows: list[list[str]],
         usage: Mapping[str, object] = NO_USAGE,
@@ -48,25 +50,39 @@ def record(tmp_path: Path):
         with output_path.open("w", encoding="utf-8", newline="") as output_file:
             csv.writer(output_file).writerows(rows)
         usage_path.write_text(json.dumps(usage), encoding="utf-8")
-        if full_rows is None:
-            return record_run(output_path, usage_path, SAMPLE_OUTPUT_PATH, "scores")
-
-        full_output_path = tmp_path / "full_output.csv"
-        full_usage_path = tmp_path / "full_usage.json"
-        with full_output_path.open("w", encoding="utf-8", newline="") as full_output_file:
-            csv.writer(full_output_file).writerows(full_rows)
-        full_usage_path.write_text(
-            json.dumps(full_usage if full_usage is not None else usage), encoding="utf-8"
-        )
-        return record_run(
-            output_path,
-            usage_path,
-            SAMPLE_OUTPUT_PATH,
-            "scores",
-            full_set_paths=FullSetPaths(full_output_path, full_usage_path),
+        full_set_paths = None
+        if full_rows is not None:
+            full_set_paths = FullSetPaths(
+                tmp_path / "full_output.csv", tmp_path / "full_usage.json"
+            )
+            with full_set_paths.output_path.open(
+                "w", encoding="utf-8", newline=""
+            ) as full_output_file:
+                csv.writer(full_output_file).writerows(full_rows)
+            full_set_paths.usage_path.write_text(
+                json.dumps(full_usage if full_usage is not None else usage), encoding="utf-8"
+            )
+        return record_saved_run(
+            runs.RunFiles(
+                output_path=output_path,
+                usage_path=usage_path,
+                labels_path=SAMPLE_OUTPUT_PATH,
+                scores_markdown="scores",
+                full_set_paths=full_set_paths,
+            )
         )
 
     return record_rows
+
+
+@pytest.fixture
+def record(tmp_path: Path):
+    return _recorder(tmp_path, record_run)
+
+
+@pytest.fixture
+def record_holdout(tmp_path: Path):
+    return _recorder(tmp_path, record_holdout_run)
 
 
 def _perfect_rows() -> list[list[str]]:
@@ -185,7 +201,7 @@ def test_cheaper_run_without_full_set_ties(record) -> None:
     assert _outcome(record(_perfect_rows(), NO_USAGE)) == "tie"
 
 
-def test_run_waits_for_the_baseline_lock(record) -> None:
+def test_run_waits_for_the_runs_lock(record) -> None:
     runs.RUNS_DIR.mkdir(parents=True)
     lock_path = runs.RUNS_DIR / runs.LOCK_FILENAME
     lock_path.touch()
@@ -349,8 +365,10 @@ def test_interactive_tie_prompts_for_promotion(
     assert prompt_outputs[0].splitlines()[-1].startswith("Full set:")
 
 
-def test_predictions_scoring_is_not_saved(runs_dir: Path) -> None:
-    assert main(["--predictions", str(SAMPLE_OUTPUT_PATH)]) == 0
+def test_predictions_scoring_is_not_saved(runs_dir: Path, tmp_path: Path) -> None:
+    labels_path = write_suite(tmp_path, is_holdout=False).labels_path
+
+    assert main(["--predictions", str(labels_path)]) == 0
 
     assert not runs_dir.exists()
 
@@ -367,6 +385,7 @@ def test_full_set_run_saves_full_set_artifacts(runs_dir: Path) -> None:
     "arguments",
     [
         pytest.param(["--full-set", "--predictions", str(SAMPLE_OUTPUT_PATH)], id="predictions"),
+        pytest.param(["--full-set", "--holdout"], id="holdout"),
         pytest.param(["--full-set", "validate"], id="subcommand"),
     ],
 )
@@ -438,3 +457,40 @@ def test_cost_tiebreak_requires_the_cheaper_side_to_not_lose_labelled_score(
     record(baseline_rows(), baseline_usage, full_rows=_perfect_rows())
 
     assert _outcome(record(run_rows(), run_usage, full_rows=_perfect_rows())) == "tie"
+
+
+def test_holdout_runs_diff_against_previous_holdout_run(
+    record_holdout, capsys: pytest.CaptureFixture[str]
+) -> None:
+    first_run_id = record_holdout(_degraded_rows())
+    assert "No previous holdout run" in capsys.readouterr().out
+
+    second_run_id = record_holdout(_perfect_rows())
+    third_run_id = record_holdout(_perfect_rows())
+
+    second_dir = runs.RUNS_DIR / runs.HOLDOUT_DIRNAME / second_run_id
+    second_diff = (second_dir / runs.DIFF_FILENAME).read_text()
+    third_record = json.loads(
+        (runs.RUNS_DIR / runs.HOLDOUT_DIRNAME / third_run_id / runs.RUN_FILENAME).read_text()
+    )
+    assert f"previous holdout run {first_run_id}" in second_diff
+    assert f"| {DEGRADED_CASE_ID} |" in second_diff.split("### Fixed")[1]
+    assert third_record["previous_run_id"] == second_run_id
+    assert not (runs.RUNS_DIR / runs.BASELINE_FILENAME).exists()
+
+
+def test_promote_refuses_holdout_runs(record_holdout) -> None:
+    holdout_run_id = record_holdout(_perfect_rows())
+
+    with pytest.raises(PromotionRefusedError, match="holdout run"):
+        promote_run(holdout_run_id)
+
+
+def test_holdout_agent_runs_are_saved_as_holdout_runs(runs_dir: Path) -> None:
+    assert main(["--holdout"]) == 0
+    assert main(["--holdout"]) == 0
+
+    holdout_run_dirs = list((runs_dir / runs.HOLDOUT_DIRNAME).iterdir())
+    assert len(holdout_run_dirs) == 2
+    assert sum((run_dir / runs.DIFF_FILENAME).is_file() for run_dir in holdout_run_dirs) == 1
+    assert not (runs_dir / runs.BASELINE_FILENAME).exists()
