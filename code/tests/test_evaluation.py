@@ -165,8 +165,8 @@ def test_usage_summary_calculates_model_and_overall_costs(tmp_path: Path) -> Non
     assert sonnet.estimated_cost_usd == 11
     assert summary.overall.total_tokens == 3_000_000
     assert summary.overall.estimated_cost_usd == 25
-    assert summary.overall.average_tokens_per_request == 300_000
-    assert summary.overall.cost_per_request_usd == 2.5
+    assert summary.average_tokens_per_request(summary.overall) == 300_000
+    assert summary.cost_per_request_usd(summary.overall) == 2.5
 
 
 def test_usage_summary_rejects_unknown_model(tmp_path: Path) -> None:

@@ -24,22 +24,11 @@ class UsageTotals:
     input_tokens: int
     output_tokens: int
     estimated_cost_usd: float
-    request_count: int
 
     @property
     def total_tokens(self) -> int:
         """Return input plus output tokens."""
         return self.input_tokens + self.output_tokens
-
-    @property
-    def average_tokens_per_request(self) -> float:
-        """Return total tokens divided by requests."""
-        return self.total_tokens / self.request_count
-
-    @property
-    def cost_per_request_usd(self) -> float:
-        """Return estimated cost divided by requests."""
-        return self.estimated_cost_usd / self.request_count
 
 
 @dataclasses.dataclass(frozen=True)
@@ -57,6 +46,15 @@ class UsageSummary:
 
     models: tuple[ModelUsageSummary, ...]
     overall: UsageTotals
+    request_count: int
+
+    def average_tokens_per_request(self, totals: UsageTotals) -> float:
+        """Return total tokens divided by requests."""
+        return totals.total_tokens / self.request_count
+
+    def cost_per_request_usd(self, totals: UsageTotals) -> float:
+        """Return estimated cost divided by requests."""
+        return totals.estimated_cost_usd / self.request_count
 
 
 def usage_summary(usage_path: pathlib.Path, request_count: int) -> UsageSummary:
@@ -64,17 +62,14 @@ def usage_summary(usage_path: pathlib.Path, request_count: int) -> UsageSummary:
     usage = typing.cast(
         "dict[str, list[ModelUsage]]", json.loads(usage_path.read_text(encoding="utf-8"))
     )
-    models = tuple(
-        _model_usage_summary(model_usage, request_count) for model_usage in usage["models"]
-    )
+    models = tuple(_model_usage_summary(model_usage) for model_usage in usage["models"])
     overall = UsageTotals(
         calls=sum(model.totals.calls for model in models),
         input_tokens=sum(model.totals.input_tokens for model in models),
         output_tokens=sum(model.totals.output_tokens for model in models),
         estimated_cost_usd=sum(model.totals.estimated_cost_usd for model in models),
-        request_count=request_count,
     )
-    return UsageSummary(models=models, overall=overall)
+    return UsageSummary(models=models, overall=overall, request_count=request_count)
 
 
 def format_usage_summary(summary: UsageSummary) -> str:
@@ -83,12 +78,14 @@ def format_usage_summary(summary: UsageSummary) -> str:
         "usage:",
         "provider | model | calls | input | output | total | avg/request | cost | cost/request",
     ]
-    rows.extend(_usage_row(model.provider, model.model, model.totals) for model in summary.models)
-    rows.append(_usage_row("overall", "all models", summary.overall))
+    rows.extend(
+        _usage_row(summary, model.provider, model.model, model.totals) for model in summary.models
+    )
+    rows.append(_usage_row(summary, "overall", "all models", summary.overall))
     return "\n".join(rows)
 
 
-def _model_usage_summary(model_usage: ModelUsage, request_count: int) -> ModelUsageSummary:
+def _model_usage_summary(model_usage: ModelUsage) -> ModelUsageSummary:
     model = model_usage["model"]
     try:
         input_rate, output_rate = MODEL_PRICES[model]
@@ -101,15 +98,14 @@ def _model_usage_summary(model_usage: ModelUsage, request_count: int) -> ModelUs
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         estimated_cost_usd=(input_tokens * input_rate + output_tokens * output_rate) / 1_000_000,
-        request_count=request_count,
     )
     return ModelUsageSummary(provider=model_usage["provider"], model=model, totals=totals)
 
 
-def _usage_row(provider: str, model: str, totals: UsageTotals) -> str:
+def _usage_row(summary: UsageSummary, provider: str, model: str, totals: UsageTotals) -> str:
     return (
         f"{provider} | {model} | {totals.calls} | {totals.input_tokens} | "
         f"{totals.output_tokens} | {totals.total_tokens} | "
-        f"{totals.average_tokens_per_request:.2f} | ${totals.estimated_cost_usd:.6f} | "
-        f"${totals.cost_per_request_usd:.6f}"
+        f"{summary.average_tokens_per_request(totals):.2f} | ${totals.estimated_cost_usd:.6f} | "
+        f"${summary.cost_per_request_usd(totals):.6f}"
     )
