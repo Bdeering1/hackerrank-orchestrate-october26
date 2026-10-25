@@ -186,7 +186,7 @@ def _field_score(predicted_steps: list[Step], expected_steps: list[Step]) -> Rat
     aligned_pairs = [
         aligned_pair
         for key in predicted_by_key.keys() & expected_by_key.keys()
-        for aligned_pair in zip(predicted_by_key[key], expected_by_key[key], strict=False)
+        for aligned_pair in _aligned_pairs(predicted_by_key[key], expected_by_key[key])
     ]
     matching_fields = sum(
         predicted_step[field] == expected_step[field]
@@ -195,6 +195,31 @@ def _field_score(predicted_steps: list[Step], expected_steps: list[Step]) -> Rat
     )
     unaligned_count = len(predicted_steps) + len(expected_steps) - 2 * len(aligned_pairs)
     return Ratio(matching_fields, len(COMPARED_FIELDS) * (len(aligned_pairs) + unaligned_count))
+
+
+def _aligned_pairs(
+    predicted_steps: list[Step], expected_steps: list[Step]
+) -> list[tuple[Step, Step]]:
+    unmatched_predicted_steps = list(predicted_steps)
+    unmatched_expected_steps: list[Step] = []
+    identical_pairs: list[tuple[Step, Step]] = []
+    for expected_step in expected_steps:
+        identical_step = next(
+            (
+                predicted_step
+                for predicted_step in unmatched_predicted_steps
+                if _step_content(predicted_step) == _step_content(expected_step)
+            ),
+            None,
+        )
+        if identical_step is None:
+            unmatched_expected_steps.append(expected_step)
+            continue
+        unmatched_predicted_steps.remove(identical_step)
+        identical_pairs.append((identical_step, expected_step))
+    return identical_pairs + list(
+        zip(unmatched_predicted_steps, unmatched_expected_steps, strict=False)
+    )
 
 
 def _sequence_score(predicted_steps: list[Step], expected_steps: list[Step]) -> Ratio:

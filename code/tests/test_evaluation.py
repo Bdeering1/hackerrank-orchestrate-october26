@@ -345,17 +345,6 @@ def _score_rows(status: str, steps: list[dict[str, object]]) -> CsvRows:
         ),
         pytest.param(
             "COMPLETE",
-            [
-                FIRST_EXPECTED_STEP,
-                {**FIRST_EXPECTED_STEP, "step_no": 2, "operation": "VERIFY_RECORD_PRESENT"},
-                {**SECOND_EXPECTED_STEP, "step_no": 3},
-            ],
-            lambda score: score.field_accuracy.value,
-            pytest.approx(2 / 3),
-            id="field-duplicate-key",
-        ),
-        pytest.param(
-            "COMPLETE",
             [{**SECOND_EXPECTED_STEP, "step_no": 1}],
             lambda score: score.sequence_similarity.value,
             0.5,
@@ -405,6 +394,23 @@ def test_case_scores_not_applicable_label(
     assert case_scores(predictions_path, labels_path)[0].composite == pytest.approx(
         expected_composite
     )
+
+
+def test_field_score_pairs_identical_steps_on_shared_key(tmp_path: Path) -> None:
+    retained_step = {
+        **FIRST_EXPECTED_STEP,
+        "operation": "VERIFY_RECORD_PRESENT",
+        "state": "PRESENT",
+    }
+    labels_path = tmp_path / "labels.csv"
+    predictions_path = tmp_path / PREDICTIONS_FILENAME
+    _write_rows(labels_path, _score_rows("COMPLETE", [retained_step]))
+    _write_rows(
+        predictions_path,
+        _score_rows("COMPLETE", [FIRST_EXPECTED_STEP, {**retained_step, "step_no": 2}]),
+    )
+
+    assert case_scores(predictions_path, labels_path)[0].field_accuracy.value == 0.5
 
 
 def test_pooled_composite_counts_each_step_once(tmp_path: Path) -> None:
