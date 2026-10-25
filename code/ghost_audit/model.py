@@ -8,6 +8,8 @@ if typing.TYPE_CHECKING:
 
 PRESENT = "PRESENT"
 ABSENT = "ABSENT"
+REDACTED = "REDACTED"
+ANONYMIZED = "ANONYMIZED"
 PRIMARY_COPY = "primary"
 
 
@@ -20,6 +22,7 @@ class Observation:
     copy: str
     category: str
     state: str
+    is_condition_met: bool
     identifiers: frozenset[str]
     observed_at: datetime
     evidence_id: str
@@ -48,9 +51,15 @@ class Claim:
     activity_id: str
     event_time: datetime
     event_type: str
+    source_system: str
     target_system: str
     resource_id: str
+    reported_result: str
     details: str
+
+    @property
+    def resource_key(self) -> tuple[str, str]:
+        return self.target_system, self.resource_id
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

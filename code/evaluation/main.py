@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from evaluation.runs import (
+    FullSetPaths,
     PromotionRefusedError,
     RunFiles,
     promote_run,
@@ -53,6 +54,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--predictions", type=Path)
     parser.add_argument("--holdout", action="store_true")
+    parser.add_argument("--full-set", action="store_true")
     subparsers = parser.add_subparsers(dest="command")
     promote_parser = subparsers.add_parser("promote")
     promote_parser.add_argument("run_id")
@@ -60,6 +62,11 @@ def main(argv: list[str]) -> int:
     validate_parser.add_argument("output_path", nargs="?", type=Path)
     arguments = _Arguments()
     parser.parse_args(argv, arguments)
+
+    if arguments.full_set and (
+        arguments.predictions is not None or arguments.holdout or arguments.command is not None
+    ):
+        parser.error("--full-set is only available for the default run")
 
     if arguments.command == "promote":
         return _promote(arguments.run_id)
@@ -75,19 +82,34 @@ def main(argv: list[str]) -> int:
 
         output_path = directory / "output.csv"
         usage_path = directory / "usage.json"
-        agent_exit_code = agent_main(
-            [
-                "--requests",
-                str(suite.requests_path),
-                "--output",
-                str(output_path),
-                "--usage",
-                str(usage_path),
-            ]
-        )
+        agent_exit_code = _run_agent(suite.requests_path, output_path, usage_path)
         if agent_exit_code != 0:
             return agent_exit_code
-        return _score_predictions(output_path, suite, usage_path)
+        if not arguments.full_set:
+            return _score_predictions(output_path, suite, usage_path)
+
+        if _report_validation_errors(output_path, audit_times(suite.requests_path)):
+            return 1
+        full_set_paths = FullSetPaths(directory / "full_output.csv", directory / "full_usage.json")
+        agent_exit_code = _run_agent(FULL_REQUESTS_PATH, *full_set_paths)
+        if agent_exit_code != 0:
+            return agent_exit_code
+        if _report_validation_errors(full_set_paths.output_path, audit_times(FULL_REQUESTS_PATH)):
+            return 1
+        return _score_predictions(output_path, suite, usage_path, full_set_paths)
+
+
+def _run_agent(requests_path: Path, output_path: Path, usage_path: Path) -> int:
+    return agent_main(
+        [
+            "--requests",
+            str(requests_path),
+            "--output",
+            str(output_path),
+            "--usage",
+            str(usage_path),
+        ]
+    )
 
 
 def holdout_case_ids() -> frozenset[str]:
@@ -136,7 +158,12 @@ def _write_merged_rows(
         csv.writer(output_file).writerows([header, *selected_rows])
 
 
-def _score_predictions(predictions_path: Path, suite: Suite, usage_path: Path | None = None) -> int:
+def _score_predictions(
+    predictions_path: Path,
+    suite: Suite,
+    usage_path: Path | None = None,
+    full_set_paths: FullSetPaths | None = None,
+) -> int:
     """Validate predictions and render weighted suite scores."""
     request_audit_times = audit_times(suite.requests_path)
     if _report_validation_errors(predictions_path, request_audit_times):
@@ -155,6 +182,7 @@ def _score_predictions(predictions_path: Path, suite: Suite, usage_path: Path | 
             usage_path=usage_path,
             labels_path=suite.labels_path,
             scores_markdown=scores_markdown,
+            full_set_paths=full_set_paths,
         )
     )
     return 0
@@ -203,6 +231,7 @@ def _times_from(path: Path, time_column: str) -> dict[str, datetime]:
 class _Arguments(argparse.Namespace):
     predictions: Path | None
     holdout: bool
+    full_set: bool
     command: str | None
     run_id: str
     output_path: Path | None

@@ -1,0 +1,10 @@
+2026-09-04T10:00:00Z level=INFO service=support_platform trace_id=tr-2101 resource_id=support_2101 event=support_ticket_read_completed requester_email=support.redact@example.com
+2026-09-04T10:01:00Z level=INFO service=support_platform trace_id=tr-2201 resource_id=support_2201 event=support_ticket_read_completed customer_reference=user_32 requester_name=null requester_email=null requester_phone=null
+2026-09-04T10:02:00Z level=INFO service=analytics_platform trace_id=tr-2301 resource_id=analytics_2301 event=analytics_profile_read_completed email=analytics.profile@example.com
+2026-09-04T10:03:00Z level=INFO service=analytics_platform trace_id=tr-2701 resource_id=analytics_2701 event=analytics_profile_read user_id=user_37
+2026-09-04T10:04:00Z level=INFO service=analytics_platform trace_id=tr-2501 resource_id=analytics_2501 event=contact_lookup_completed matched_value=marketing.profile@example.com email_opt_in=true
+2026-09-04T10:06:00Z level=DEBUG service=support_platform trace_id=tr-2401 event=contact_query_started lookup_key=support.index@example.com source=legacy_contact_index
+2026-09-04T10:07:00Z level=INFO service=support_platform trace_id=tr-2401 resource_id=support_2401 event=contact_query_completed rows=1 latency_ms=23
+2026-09-04T10:08:00Z level=INFO service=support_platform trace_id=tr-2802 resource_id=support_2801 event=support_ticket_read_completed customer_reference=user_38 message_text="[REDACTED]"
+2026-09-04T10:09:00Z level=DEBUG service=support_platform trace_id=tr-2801 event=contact_query_started lookup_key=support.contact@example.com source=legacy_contact_index
+2026-09-04T10:10:00Z level=INFO service=support_platform trace_id=tr-2801 resource_id=support_2801 event=contact_query_completed rows=1 latency_ms=23
