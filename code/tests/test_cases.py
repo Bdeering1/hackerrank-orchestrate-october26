@@ -10,9 +10,7 @@ from evaluation.main import (
     holdout_case_ids,
     write_suite,
 )
-from evaluation.validate import data_rows, validation_errors
-
-REQUEST_TEXT_INDEX = 6
+from evaluation.validate import csv_rows, data_rows, validation_errors
 
 
 def _case_ids(path: Path) -> set[str]:
@@ -46,12 +44,12 @@ def test_suites_split_every_case_by_holdout(tmp_path: Path) -> None:
 
 def test_holdout_requests_are_not_prompt_examples() -> None:
     holdout_ids = holdout_case_ids()
-    holdout_texts = [
-        row[REQUEST_TEXT_INDEX]
-        for requests_path in (SAMPLE_REQUESTS_PATH, CUSTOM_REQUESTS_PATH)
-        for row in data_rows(requests_path)
-        if row[0] in holdout_ids
-    ]
+    holdout_texts: list[str] = []
+    for requests_path in (SAMPLE_REQUESTS_PATH, CUSTOM_REQUESTS_PATH):
+        header, *rows = csv_rows(requests_path)
+        text_index = header.index("request_text")
+        holdout_texts += [row[text_index] for row in rows if row[0] in holdout_ids]
+    forbidden = [*holdout_texts, *holdout_ids, "sample_output.csv", CUSTOM_LABELS_PATH.name]
     package_dir = Path(ghost_audit.__file__).parent
     source_texts = [
         path.read_text(encoding="utf-8", errors="ignore")
@@ -60,4 +58,4 @@ def test_holdout_requests_are_not_prompt_examples() -> None:
     ]
 
     assert holdout_texts
-    assert not [text for text in holdout_texts if any(text in source for source in source_texts)]
+    assert not [text for text in forbidden if any(text in source for source in source_texts)]

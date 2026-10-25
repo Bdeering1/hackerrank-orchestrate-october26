@@ -44,5 +44,5 @@ code.zip
 agent-trace/
 agent-trace.zip
 
-# Held only while a harness run updates the baseline
-eval_runs/.baseline.lock
+# Held only while a harness run is saved
+eval_runs/.runs.lock
