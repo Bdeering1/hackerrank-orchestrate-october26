@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from evaluation.main import main
-from evaluation.score import case_scores
+from evaluation.score import CaseScore, case_scores, pooled_composite
 from evaluation.usage import usage_summary
 from evaluation.validate import csv_rows, validation_errors
 from ghost_audit.usage import UsageTracker
@@ -27,7 +27,7 @@ def test_main_scores_sample_answers(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["--predictions", str(SAMPLE_OUTPUT_PATH)]) == 0
 
     captured = capsys.readouterr()
-    assert "Average composite: 100.0%" in captured.out
+    assert "Composite: 100.0%" in captured.out
     assert "Status matches: 32/32" in captured.out
 
 
@@ -42,7 +42,7 @@ def test_main_reports_status_mismatch(capsys: pytest.CaptureFixture[str], tmp_pa
 
     captured = capsys.readouterr()
     assert "Status matches: 31/32" in captured.out
-    assert "Average composite: 100.0%" not in captured.out
+    assert "Composite: 100.0%" not in captured.out
 
 
 def _sample_output_rows() -> CsvRows:
@@ -321,20 +321,26 @@ def _score_rows(status: str, steps: list[dict[str, object]]) -> CsvRows:
 
 
 @pytest.mark.parametrize(
-    ("status", "steps", "metric", "expected_value"),
+    ("status", "steps", "metric_value", "expected_value"),
     [
-        pytest.param("INCOMPLETE", [FIRST_EXPECTED_STEP], "status_match", 0.0, id="status"),
+        pytest.param(
+            "INCOMPLETE",
+            [FIRST_EXPECTED_STEP],
+            lambda score: score.status_match.value,
+            0.0,
+            id="status",
+        ),
         pytest.param(
             "COMPLETE",
             [{**FIRST_EXPECTED_STEP, "operation": "VERIFY_RECORD_PRESENT"}],
-            "step_f1",
+            lambda score: score.step_f1.value,
             0.0,
             id="step",
         ),
         pytest.param(
             "COMPLETE",
             [{**FIRST_EXPECTED_STEP, "evidence_id": "evidence_02"}],
-            "field_accuracy",
+            lambda score: score.field_accuracy.value,
             pytest.approx(1 / 3),
             id="field",
         ),
@@ -345,19 +351,23 @@ def _score_rows(status: str, steps: list[dict[str, object]]) -> CsvRows:
                 {**FIRST_EXPECTED_STEP, "step_no": 2, "operation": "VERIFY_RECORD_PRESENT"},
                 {**SECOND_EXPECTED_STEP, "step_no": 3},
             ],
-            "field_accuracy",
+            lambda score: score.field_accuracy.value,
             pytest.approx(2 / 3),
             id="field-duplicate-key",
         ),
         pytest.param(
             "COMPLETE",
             [{**SECOND_EXPECTED_STEP, "step_no": 1}],
-            "sequence_similarity",
+            lambda score: score.sequence_similarity.value,
             0.5,
             id="sequence",
         ),
         pytest.param(
-            "COMPLETE", [FIRST_EXPECTED_STEP], "composite", pytest.approx(205 / 3), id="composite"
+            "COMPLETE",
+            [FIRST_EXPECTED_STEP],
+            lambda score: score.composite,
+            pytest.approx(205 / 3),
+            id="composite",
         ),
     ],
 )
@@ -365,7 +375,7 @@ def test_case_scores_partial_metrics(
     tmp_path: Path,
     status: str,
     steps: list[dict[str, object]],
-    metric: str,
+    metric_value: Callable[[CaseScore], float],
     expected_value: object,
 ) -> None:
     labels_path = tmp_path / "labels.csv"
@@ -375,7 +385,7 @@ def test_case_scores_partial_metrics(
 
     score = case_scores(predictions_path, labels_path)[0]
 
-    assert getattr(score, metric) == expected_value
+    assert metric_value(score) == expected_value
 
 
 @pytest.mark.parametrize(
@@ -398,11 +408,30 @@ def test_case_scores_not_applicable_label(
     )
 
 
+def test_pooled_composite_counts_each_step_once(tmp_path: Path) -> None:
+    labels_path = tmp_path / "labels.csv"
+    predictions_path = tmp_path / PREDICTIONS_FILENAME
+    labels = [
+        *_score_rows("COMPLETE", [FIRST_EXPECTED_STEP]),
+        ["case_02", "COMPLETE", json.dumps([FIRST_EXPECTED_STEP, SECOND_EXPECTED_STEP])],
+    ]
+    _write_rows(labels_path, labels)
+    _write_rows(
+        predictions_path,
+        [
+            *_score_rows("COMPLETE", [{**FIRST_EXPECTED_STEP, "evidence_id": "evidence_02"}]),
+            labels[2],
+        ],
+    )
+
+    assert pooled_composite(case_scores(predictions_path, labels_path)) == pytest.approx(245 / 3)
+
+
 def test_main_runs_placeholder_agent(capsys: pytest.CaptureFixture[str]) -> None:
     assert main([]) == 0
 
     captured = capsys.readouterr()
-    assert "Average composite:" in captured.out
+    assert "Composite:" in captured.out
     assert "usage:" in captured.out
 
 

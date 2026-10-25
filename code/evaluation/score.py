@@ -14,30 +14,51 @@ if typing.TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class Ratio:
+    numerator: int
+    denominator: int
+
+    @property
+    def value(self) -> float:
+        """Return the ratio, or 1.0 when there is nothing to compare."""
+        return self.numerator / self.denominator if self.denominator else 1.0
+
+    def __add__(self, other: Ratio) -> Ratio:
+        return Ratio(self.numerator + other.numerator, self.denominator + other.denominator)
+
+
+@dataclass(frozen=True)
 class MetricDefinition:
     label: str
     weight: float
     definition: str
-    value: Callable[[CaseScore], float]
+    ratio: Callable[[CaseScore], Ratio]
 
 
 METRICS = (
     MetricDefinition(
-        "Status", 0.25, "Exact deletion-status match.", lambda score: score.status_match
+        "Status",
+        0.25,
+        "Exact deletion-status match, averaged over cases.",
+        lambda score: score.status_match,
     ),
     MetricDefinition(
-        "Step", 0.35, "Multiset F1 over steps, ignoring step_no.", lambda score: score.step_f1
+        "Step",
+        0.35,
+        "Multiset F1 over all steps pooled across cases, ignoring step_no.",
+        lambda score: score.step_f1,
     ),
     MetricDefinition(
         "Field",
         0.30,
-        "Operation, state, and evidence agreement for steps aligned by phase, system, and resource.",
+        "Operation, state, and evidence agreement over all steps pooled across cases, "
+        "aligned by phase, system, and resource.",
         lambda score: score.field_accuracy,
     ),
     MetricDefinition(
         "Sequence",
         0.10,
-        "1 minus the step edit distance, divided by the longer step list's length.",
+        "1 minus the summed step edit distances, divided by the summed longer step-list lengths.",
         lambda score: score.sequence_similarity,
     ),
 )
@@ -48,15 +69,15 @@ class CaseScore:
     case_id: str
     expected_status: str
     predicted_status: str | None
-    status_match: float
-    step_f1: float
-    field_accuracy: float
-    sequence_similarity: float
+    status_match: Ratio
+    step_f1: Ratio
+    field_accuracy: Ratio
+    sequence_similarity: Ratio
 
     @property
     def composite(self) -> float:
-        """Weighted 0-100 composite of the metrics."""
-        return 100 * sum(metric.weight * metric.value(self) for metric in METRICS)
+        """Weighted 0-100 composite of this case's metrics."""
+        return 100 * sum(metric.weight * metric.ratio(self).value for metric in METRICS)
 
 
 def case_scores(predictions_path: Path, labels_path: Path) -> list[CaseScore]:
@@ -70,7 +91,15 @@ def case_scores(predictions_path: Path, labels_path: Path) -> list[CaseScore]:
     for case_id, (expected_status, expected_steps) in labels.items():
         predicted = predictions.get(case_id)
         if predicted is None:
-            scores.append(CaseScore(case_id, expected_status, None, 0.0, 0.0, 0.0, 0.0))
+            step_count = max(1, len(expected_steps))
+            missing_step_ratios = (
+                Ratio(0, step_count),
+                Ratio(0, 3 * step_count),
+                Ratio(0, step_count),
+            )
+            scores.append(
+                CaseScore(case_id, expected_status, None, Ratio(0, 1), *missing_step_ratios)
+            )
             continue
         predicted_status, predicted_steps = predicted
         scores.append(
@@ -78,7 +107,7 @@ def case_scores(predictions_path: Path, labels_path: Path) -> list[CaseScore]:
                 case_id,
                 expected_status,
                 predicted_status,
-                float(predicted_status == expected_status),
+                Ratio(int(predicted_status == expected_status), 1),
                 _step_f1(predicted_steps, expected_steps),
                 _field_score(predicted_steps, expected_steps),
                 _sequence_score(predicted_steps, expected_steps),
@@ -87,27 +116,30 @@ def case_scores(predictions_path: Path, labels_path: Path) -> list[CaseScore]:
     return sorted(scores, key=lambda score: case_number(score.case_id))
 
 
+def pooled_composite(scores: Collection[CaseScore]) -> float:
+    """Weighted 0-100 composite of each metric pooled across cases."""
+    return 100 * sum(metric.weight * _pooled_ratio(metric, scores).value for metric in METRICS)
+
+
 def render_markdown(scores: Collection[CaseScore]) -> str:
     """Render scores as the evaluation report's Markdown section."""
-    score_list = list(scores)
-    average_composite = _mean(score.composite for score in score_list)
-    status_match_count = sum(score.status_match == 1 for score in score_list)
+    status_match_count = sum(score.status_match.numerator for score in scores)
     lines = [
         "## Summary",
         "",
-        "| Metric | Weight | Definition | Mean |",
+        "| Metric | Weight | Definition | Score |",
         "| --- | ---: | --- | ---: |",
     ]
     lines.extend(
         f"| {metric.label} | {metric.weight:.0%} | {metric.definition} | "
-        f"{_mean(metric.value(score) for score in score_list):.1%} |"
+        f"{_pooled_ratio(metric, scores).value:.1%} |"
         for metric in METRICS
     )
     lines.extend(
         [
             "",
-            f"Average composite: {average_composite:.1f}%",
-            f"Status matches: {status_match_count}/{len(score_list)}",
+            f"Composite: {pooled_composite(scores):.1f}%",
+            f"Status matches: {status_match_count}/{len(scores)}",
             "",
             "## Per-case scores",
             "",
@@ -116,8 +148,8 @@ def render_markdown(scores: Collection[CaseScore]) -> str:
         ]
     )
     lines.extend(
-        f"| {score.case_id} | {score.expected_status} | {score.predicted_status or ''} | {score.step_f1:.1%} | {score.field_accuracy:.1%} | {score.sequence_similarity:.1%} | {score.composite:.1f}% |"
-        for score in score_list
+        f"| {score.case_id} | {score.expected_status} | {score.predicted_status or ''} | {score.step_f1.value:.1%} | {score.field_accuracy.value:.1%} | {score.sequence_similarity.value:.1%} | {score.composite:.1f}% |"
+        for score in scores
     )
     return "\n".join(lines) + "\n"
 
@@ -133,18 +165,18 @@ def _steps(steps_json: str) -> list[Step]:
     return [typing.cast("Step", step) for step in typing.cast("list[object]", parsed)]
 
 
-def _step_f1(predicted_steps: list[Step], expected_steps: list[Step]) -> float:
-    if not predicted_steps and not expected_steps:
-        return 1.0
+def _pooled_ratio(metric: MetricDefinition, scores: Iterable[CaseScore]) -> Ratio:
+    return sum((metric.ratio(score) for score in scores), Ratio(0, 0))
+
+
+def _step_f1(predicted_steps: list[Step], expected_steps: list[Step]) -> Ratio:
     predicted_counts = Counter(_step_content(step) for step in predicted_steps)
     expected_counts = Counter(_step_content(step) for step in expected_steps)
     matched_steps = sum((predicted_counts & expected_counts).values())
-    return 2 * matched_steps / (len(predicted_steps) + len(expected_steps))
+    return Ratio(2 * matched_steps, len(predicted_steps) + len(expected_steps))
 
 
-def _field_score(predicted_steps: list[Step], expected_steps: list[Step]) -> float:
-    if not predicted_steps and not expected_steps:
-        return 1.0
+def _field_score(predicted_steps: list[Step], expected_steps: list[Step]) -> Ratio:
     predicted_by_key = _steps_by_key(predicted_steps)
     expected_by_key = _steps_by_key(expected_steps)
     aligned_pairs = [
@@ -158,17 +190,16 @@ def _field_score(predicted_steps: list[Step], expected_steps: list[Step]) -> flo
         for field in ("operation", "state", "evidence_id")
     )
     unaligned_count = len(predicted_steps) + len(expected_steps) - 2 * len(aligned_pairs)
-    return matching_fields / (3 * (len(aligned_pairs) + unaligned_count))
+    return Ratio(matching_fields, 3 * (len(aligned_pairs) + unaligned_count))
 
 
-def _sequence_score(predicted_steps: list[Step], expected_steps: list[Step]) -> float:
-    if not predicted_steps and not expected_steps:
-        return 1.0
+def _sequence_score(predicted_steps: list[Step], expected_steps: list[Step]) -> Ratio:
     edit_distance = _edit_distance(
         [_step_content(step) for step in predicted_steps],
         [_step_content(step) for step in expected_steps],
     )
-    return 1 - edit_distance / max(len(predicted_steps), len(expected_steps))
+    longer_step_count = max(len(predicted_steps), len(expected_steps))
+    return Ratio(longer_step_count - edit_distance, longer_step_count)
 
 
 def _edit_distance[T](predicted_items: list[T], expected_items: list[T]) -> int:
@@ -203,8 +234,3 @@ def _steps_by_key(steps: list[Step]) -> dict[tuple[str, str, str], list[Step]]:
     for step in steps:
         steps_by_key[(step["phase"], step["system_id"], step["resource_id"])].append(step)
     return steps_by_key
-
-
-def _mean(values: Iterable[float]) -> float:
-    value_list = list(values)
-    return sum(value_list) / len(value_list) if value_list else 0.0
