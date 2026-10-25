@@ -1,0 +1,4 @@
+activity_id,event_time,event_type,source_system,target_system,resource_id,reported_result,details
+activity_01,2026-09-01T08:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_101,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_101.
+activity_02,2026-09-02T06:07:01Z,LINK_RESOURCE_IDENTITY,data_catalog,account_service,account_606,SUCCESS,Data catalog linked account_606 (account_606) to t.novak@icloud.com and user_06.
+activity_03,2026-09-10T06:07:01Z,LINK_RESOURCE_IDENTITY,data_catalog,account_service,account_404,SUCCESS,Data catalog linked account_404 (account_404) to kwame-mensah@proton.me and user_04.

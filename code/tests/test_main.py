@@ -5,123 +5,265 @@ from pathlib import Path
 
 import pytest
 
-import ghost_audit.__main__
 import ghost_audit.llm
 from evaluation.validate import data_rows, validation_errors
 from ghost_audit.__main__ import main
-from ghost_audit.llm import StructuredLLM
-from ghost_audit.usage import UsageTracker
-from tests.fakes import FakeTransport, fail_to_connect
+from tests.fakes import (
+    NO_DELETE_MARKER,
+    FakeTransport,
+    decide_intent,
+    fail_to_connect,
+    fake_connect,
+)
 
-REQUESTS_PATH = Path(__file__).resolve().parents[2] / "dataset" / "sample_deletion_requests.csv"
-
-
-def test_main_writes_valid_output_for_samples(tmp_path: Path) -> None:
-    output_path = tmp_path / "output.csv"
-
-    assert main(["--requests", str(REQUESTS_PATH), "--output", str(output_path)]) == 0
-
-    audit_times = {row[0]: datetime.fromisoformat(row[5]) for row in data_rows(REQUESTS_PATH)}
-    assert validation_errors(output_path, audit_times, evidence_times={}) == []
+DATASET_DIR = Path(__file__).resolve().parent / "fixtures" / "dataset"
+REQUESTS_PATH = DATASET_DIR / "deletion_requests.csv"
+ACCOUNT_SYSTEM = "account_service"
 
 
-def test_main_routes_non_deletion_and_deletion_requests(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    requests_path = tmp_path / "requests.csv"
-    output_path = tmp_path / "output.csv"
-    _write_requests(
-        requests_path,
-        [
-            ("case_02", "NO_DELETE send me a copy"),
-            ("case_01", "Please delete my account"),
-        ],
-    )
-    monkeypatch.setattr(
-        ghost_audit.__main__,
-        "_audit_deletion_request",
-        lambda _request: ("COMPLETE", "[]"),
-    )
+def _step(
+    step_no: int, phase: str, resource_id: str, operation: str, state: str, evidence_id: str
+) -> dict[str, object]:
+    return {
+        "step_no": step_no,
+        "phase": phase,
+        "system_id": ACCOUNT_SYSTEM,
+        "resource_id": resource_id,
+        "operation": operation,
+        "state": state,
+        "evidence_id": evidence_id,
+    }
 
-    assert main(["--requests", str(requests_path), "--output", str(output_path)]) == 0
 
-    assert _read_output(output_path) == [
-        ["case_id", "deletion_status", "steps_json"],
-        ["case_01", "COMPLETE", "[]"],
-        ["case_02", "NOT_APPLICABLE", "[]"],
+def _remaining_account_steps(resource_id: str, evidence_id: str) -> list[dict[str, object]]:
+    return [
+        _step(1, "FINDING", resource_id, "REPORT_REMAINING_RECORD", "PRESENT", evidence_id),
+        _step(2, "REMEDIATION", resource_id, "DELETE_RECORD", "ABSENT", ""),
+        _step(3, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", ""),
     ]
 
 
-def test_main_writes_usage_for_one_call_per_distinct_text(tmp_path: Path) -> None:
-    requests_path = tmp_path / "requests.csv"
-    output_path = tmp_path / "output.csv"
-    usage_path = tmp_path / "usage.json"
-    _write_requests(
-        requests_path,
-        [
-            ("case_01", "Please delete my account"),
-            ("case_02", "NO_DELETE send me a copy"),
-            ("case_03", "Please delete my account"),
-        ],
-    )
+def _absent_account_steps(resource_id: str, evidence_id: str) -> list[dict[str, object]]:
+    return [_step(1, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", evidence_id)]
 
-    assert (
-        main(
+
+@pytest.fixture(scope="module")
+def run(tmp_path_factory: pytest.TempPathFactory) -> tuple[int, Path]:
+    output_dir = tmp_path_factory.mktemp("output")
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        connect = fake_connect(FakeTransport(decide_intent), output_dir / "llm-cache")
+        monkeypatch.setattr(ghost_audit.llm, "connect", connect)
+        exit_code = main(
             [
-                "--requests",
-                str(requests_path),
+                "--dataset",
+                str(DATASET_DIR),
                 "--output",
-                str(output_path),
+                str(output_dir / "output.csv"),
                 "--usage",
-                str(usage_path),
+                str(output_dir / "usage.json"),
             ]
         )
-        == 0
-    )
+    return exit_code, output_dir
 
-    assert json.loads(usage_path.read_text(encoding="utf-8")) == {
+
+def test_main_writes_valid_output_and_usage(run):
+    exit_code, output_dir = run
+    audit_times = {row[0]: datetime.fromisoformat(row[5]) for row in data_rows(REQUESTS_PATH)}
+    evidence_times = {
+        row[0]: datetime.fromisoformat(row[3])
+        for row in data_rows(DATASET_DIR / "evidence_files.csv")
+    }
+
+    assert exit_code == 0
+    # Every fixture request shares one text, so intent routing makes one call.
+    assert json.loads((output_dir / "usage.json").read_text(encoding="utf-8")) == {
         "models": [
             {
                 "provider": "anthropic",
                 "model": "claude-haiku-5.5",
-                "calls": 2,
-                "input_tokens": 6,
-                "output_tokens": 10,
+                "calls": 1,
+                "input_tokens": 3,
+                "output_tokens": 5,
             }
         ]
     }
+    assert validation_errors(output_dir / "output.csv", audit_times, evidence_times) == []
+
+
+@pytest.mark.parametrize(
+    ("case_id", "expected_status", "expected_steps"),
+    [
+        pytest.param(
+            "case_01",
+            "INCOMPLETE",
+            _remaining_account_steps("account_101", "evidence_01"),
+            id="replica copy remains",
+        ),
+        pytest.param(
+            "case_02",
+            "COMPLETE",
+            _absent_account_steps("account_202", "evidence_02"),
+            id="historical email linked by log trace",
+        ),
+        pytest.param(
+            "case_03",
+            "COMPLETE",
+            _absent_account_steps("account_303", "evidence_02"),
+            id="snapshot after audit_at ignored",
+        ),
+        pytest.param(
+            "case_04",
+            "INCOMPLETE",
+            _remaining_account_steps("account_303", "evidence_03"),
+            id="snapshot before audit_at applies",
+        ),
+        pytest.param(
+            "case_05", "NOT_APPLICABLE", [], id="no linked account, catalog link after audit_at"
+        ),
+        pytest.param(
+            "case_06",
+            "INCOMPLETE",
+            _remaining_account_steps("account_303", "evidence_02"),
+            id="latest record uncitable, latest citable evidence cited",
+        ),
+        pytest.param(
+            "case_07",
+            "INCOMPLETE",
+            _remaining_account_steps("account_505", "evidence_04"),
+            id="service export lookup found",
+        ),
+        pytest.param(
+            "case_08",
+            "COMPLETE",
+            _absent_account_steps("account_606", "evidence_04"),
+            id="catalog link to service export lookup not found",
+        ),
+        pytest.param(
+            "case_09",
+            "COMPLETE",
+            _absent_account_steps("account_707", "evidence_05"),
+            id="bracketed log trace",
+        ),
+        pytest.param(
+            "case_10",
+            "COMPLETE",
+            _absent_account_steps("account_808", "evidence_05"),
+            id="pipe log trace",
+        ),
+        pytest.param(
+            "case_11",
+            "COMPLETE",
+            _absent_account_steps("account_909", "evidence_05"),
+            id="syslog trace with uppercase email",
+        ),
+        pytest.param(
+            "case_12",
+            "COMPLETE",
+            _absent_account_steps("account_1010", "evidence_05"),
+            id="json log trace",
+        ),
+        pytest.param(
+            "case_13",
+            "INCOMPLETE",
+            _remaining_account_steps("account_1111", "evidence_06"),
+            id="inventory sql snapshot",
+        ),
+        pytest.param(
+            "case_14",
+            "COMPLETE",
+            _absent_account_steps("account_1212", "evidence_07"),
+            id="text handover record",
+        ),
+        pytest.param(
+            "case_15",
+            "INCOMPLETE",
+            _remaining_account_steps("account_1313", "evidence_09"),
+            id="record found only in uncitable log, earlier citable record cited",
+        ),
+        pytest.param(
+            "case_16",
+            "COMPLETE",
+            _absent_account_steps("account_1414", "evidence_03"),
+            id="later snapshot omits earlier record",
+        ),
+        pytest.param(
+            "case_17",
+            "INCOMPLETE",
+            _remaining_account_steps("account_1515", "evidence_09"),
+            id="json replica row remains",
+        ),
+        pytest.param(
+            "case_18",
+            "INCOMPLETE",
+            _remaining_account_steps("account_1616", "evidence_10"),
+            id="json ledger record found",
+        ),
+        pytest.param(
+            "case_19",
+            "COMPLETE",
+            _absent_account_steps("account_1717", "evidence_11"),
+            id="log ledger record not found",
+        ),
+        pytest.param(
+            "case_20",
+            "COMPLETE",
+            _absent_account_steps("account_1819", "evidence_02"),
+            id="account deleted before an earlier request ignored",
+        ),
+    ],
+)
+def test_main_audits_account_records(run, case_id, expected_status, expected_steps):
+    _, output_dir = run
+    output_rows = {
+        row[0]: (row[1], json.loads(row[2])) for row in data_rows(output_dir / "output.csv")
+    }
+
+    assert output_rows[case_id] == (expected_status, expected_steps)
+
+
+def test_main_skips_audit_for_requests_that_do_not_authorize_deletion(tmp_path: Path) -> None:
+    requests_path = tmp_path / "deletion_requests.csv"
+    output_path = tmp_path / "output.csv"
+    _write_requests_with_text(requests_path, "case_01", f"{NO_DELETE_MARKER} send me a copy")
+
+    assert main(_main_arguments(requests_path, output_path)) == 0
+
+    output_rows = {row[0]: (row[1], row[2]) for row in data_rows(output_path)}
+    assert output_rows["case_01"] == ("NOT_APPLICABLE", "[]")
+    assert output_rows["case_02"][0] == "COMPLETE"
 
 
 def test_main_keeps_existing_output_when_intent_routing_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    requests_path = tmp_path / "requests.csv"
     output_path = tmp_path / "output.csv"
-    _write_requests(requests_path, [("case_01", "Please delete my account")])
     output_path.write_text("previous output", encoding="utf-8")
-
-    def connect(usage_tracker: UsageTracker) -> StructuredLLM:
-        return StructuredLLM(
-            FakeTransport(fail_to_connect),
-            usage_tracker,
-            tmp_path / "llm-cache",
-            max_attempts=1,
-        )
-
+    connect = fake_connect(FakeTransport(fail_to_connect), tmp_path / "llm-cache", max_attempts=1)
     monkeypatch.setattr(ghost_audit.llm, "connect", connect)
 
-    assert main(["--requests", str(requests_path), "--output", str(output_path)]) == 1
+    assert main(_main_arguments(REQUESTS_PATH, output_path)) == 1
 
     assert output_path.read_text(encoding="utf-8") == "previous output"
 
 
-def _write_requests(path: Path, rows: list[tuple[str, str]]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as requests_file:
-        writer = csv.DictWriter(requests_file, fieldnames=["case_id", "request_text"])
+def _main_arguments(requests_path: Path, output_path: Path) -> list[str]:
+    return [
+        "--dataset",
+        str(DATASET_DIR),
+        "--requests",
+        str(requests_path),
+        "--output",
+        str(output_path),
+    ]
+
+
+def _write_requests_with_text(path: Path, case_id: str, request_text: str) -> None:
+    with REQUESTS_PATH.open(encoding="utf-8", newline="") as requests_file:
+        requests = list(csv.DictReader(requests_file))
+    for request in requests:
+        if request["case_id"] == case_id:
+            request["request_text"] = request_text
+    with path.open("w", encoding="utf-8", newline="") as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=list(requests[0]))
         writer.writeheader()
-        writer.writerows({"case_id": case_id, "request_text": text} for case_id, text in rows)
-
-
-def _read_output(path: Path) -> list[list[str]]:
-    with path.open(encoding="utf-8", newline="") as output_file:
-        return list(csv.reader(output_file))
+        writer.writerows(requests)

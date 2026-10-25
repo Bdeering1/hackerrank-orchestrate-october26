@@ -5,9 +5,7 @@ import pytest
 
 import ghost_audit.llm
 from evaluation import runs
-from ghost_audit.llm import StructuredLLM
-from ghost_audit.usage import UsageTracker
-from tests.fakes import FakeTransport, decide_intent
+from tests.fakes import FakeTransport, decide_intent, fake_connect
 
 
 @pytest.fixture(autouse=True)
@@ -34,9 +32,7 @@ def fake_llm_connection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def connect(usage_tracker: UsageTracker) -> StructuredLLM:
-        return StructuredLLM(FakeTransport(decide_intent), usage_tracker, tmp_path / "llm-cache")
-
+    connect = fake_connect(FakeTransport(decide_intent), tmp_path / "llm-cache")
     monkeypatch.setattr(ghost_audit.llm, "connect", connect)
 
 

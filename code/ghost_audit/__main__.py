@@ -3,29 +3,41 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import dataclasses
+import json
 import pathlib
 import sys
+import typing
 
 import ghost_audit.intent
 import ghost_audit.llm
 import ghost_audit.usage
+from ghost_audit.audit import NOT_APPLICABLE, Auditor
+from ghost_audit.dataset import csv_records, loaded_dataset
 from ghost_audit.output_format import HEADER, case_number
 
+if typing.TYPE_CHECKING:
+    from ghost_audit.model import Step
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-DEFAULT_REQUESTS_PATH = REPO_ROOT / "dataset" / "deletion_requests.csv"
+DEFAULT_DATASET_DIR = REPO_ROOT / "dataset"
 DEFAULT_OUTPUT_PATH = REPO_ROOT / "output.csv"
 
 
 def main(argv: list[str]) -> int:
-    """Route requests by intent and write placeholder audit results."""
+    """Audit every deletion request and write the results and optional usage data."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--requests", type=pathlib.Path, default=DEFAULT_REQUESTS_PATH)
+    parser.add_argument("--dataset", type=pathlib.Path, default=DEFAULT_DATASET_DIR)
+    parser.add_argument("--requests", type=pathlib.Path)
     parser.add_argument("--output", type=pathlib.Path, default=DEFAULT_OUTPUT_PATH)
     parser.add_argument("--usage", type=pathlib.Path)
     arguments = _Arguments()
     parser.parse_args(argv, arguments)
 
-    requests = _read_requests(arguments.requests)
+    requests_path = arguments.requests or arguments.dataset / "deletion_requests.csv"
+    requests = sorted(
+        csv_records(requests_path), key=lambda request: case_number(request["case_id"])
+    )
     tracker = ghost_audit.usage.UsageTracker()
     try:
         llm = ghost_audit.llm.connect(tracker)
@@ -38,38 +50,32 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(f"intent routing failed: {error}\n")
         return 1
 
-    _write_output(requests, authorizations, arguments.output)
+    auditor = Auditor(loaded_dataset(arguments.dataset))
+    with arguments.output.open("w", encoding="utf-8", newline="") as output_file:
+        writer = csv.writer(output_file)
+        writer.writerow(HEADER)
+        for request in requests:
+            if not authorizations[request["request_text"]]:
+                writer.writerow((request["case_id"], NOT_APPLICABLE, "[]"))
+                continue
+            status, steps = auditor.audited_case(request)
+            writer.writerow((request["case_id"], status, _steps_json(steps)))
     if arguments.usage is not None:
         tracker.write(arguments.usage)
     return 0
 
 
-def _read_requests(requests_path: pathlib.Path) -> list[dict[str, str]]:
-    with requests_path.open(encoding="utf-8", newline="") as requests_file:
-        requests = [dict(request) for request in csv.DictReader(requests_file)]
-    return sorted(requests, key=lambda request: case_number(request["case_id"]))
-
-
-def _write_output(
-    requests: list[dict[str, str]], authorizations: dict[str, bool], output_path: pathlib.Path
-) -> None:
-    with output_path.open("w", encoding="utf-8", newline="") as output_file:
-        writer = csv.writer(output_file)
-        writer.writerow(HEADER)
-        for request in requests:
-            request_text = request["request_text"]
-            if not authorizations[request_text]:
-                writer.writerow((request["case_id"], "NOT_APPLICABLE", "[]"))
-                continue
-            writer.writerow((request["case_id"], *_audit_deletion_request(request)))
-
-
-def _audit_deletion_request(_request: dict[str, str]) -> tuple[str, str]:
-    return "NOT_APPLICABLE", "[]"
+def _steps_json(steps: list[Step]) -> str:
+    numbered_steps = [
+        {"step_no": step_no, **dataclasses.asdict(step)}
+        for step_no, step in enumerate(steps, start=1)
+    ]
+    return json.dumps(numbered_steps, sort_keys=True, separators=(",", ":"))
 
 
 class _Arguments(argparse.Namespace):
-    requests: pathlib.Path
+    dataset: pathlib.Path
+    requests: pathlib.Path | None
     output: pathlib.Path
     usage: pathlib.Path | None
 

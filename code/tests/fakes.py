@@ -1,12 +1,14 @@
 import asyncio
 import json
 from collections.abc import Callable, Iterable
+from pathlib import Path
 
 import httpx2 as httpx
 import openai
 
 from ghost_audit.intent import USER_MESSAGE_PREFIX
-from ghost_audit.llm import Completion, StructuredRequest
+from ghost_audit.llm import Completion, StructuredLLM, StructuredRequest
+from ghost_audit.usage import UsageTracker
 
 REQUEST = httpx.Request("POST", "https://example.test")
 NO_DELETE_MARKER = "NO_DELETE"
@@ -52,3 +54,14 @@ def scripted(
 
 def fail_to_connect(_request: StructuredRequest) -> Completion:
     raise openai.APIConnectionError(request=REQUEST)
+
+
+def fake_connect(
+    transport: FakeTransport, cache_dir: Path, max_attempts: int = 4
+) -> Callable[[UsageTracker], StructuredLLM]:
+    """Return a `ghost_audit.llm.connect` replacement that uses `transport`."""
+
+    def connect(usage_tracker: UsageTracker) -> StructuredLLM:
+        return StructuredLLM(transport, usage_tracker, cache_dir, max_attempts=max_attempts)
+
+    return connect
