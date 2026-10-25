@@ -23,6 +23,7 @@ class Category:
     log_events: frozenset[str]
     existing_state: Callable[[Mapping[str, object]], str]
     is_condition_met: Callable[[Mapping[str, object]], bool]
+    retention_end_field: str | None = None
 
 
 def always_present_state(_record: Mapping[str, object]) -> str:

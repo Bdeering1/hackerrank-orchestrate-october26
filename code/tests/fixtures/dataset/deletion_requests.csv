@@ -49,3 +49,10 @@ case_47,henrik.aalto@fastmail.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00
 case_48,priya.venkat@gmail.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
 case_49,olu.bankole@yahoo.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
 case_50,ines.carvalho@sapo.pt,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_101,security.retained@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_102,security.expired@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_103,legal.retained@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_104,tombstone.clean@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_105,tombstone.exposed@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_106,security.missing@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_107,security.absent@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.

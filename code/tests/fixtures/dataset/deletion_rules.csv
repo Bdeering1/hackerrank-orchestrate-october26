@@ -1,5 +1,8 @@
 rule_id,data_category,condition,required_action
 rule_01,USER_PROFILE,Always,DELETE
+rule_12,SECURITY_AUDIT_LOG,Record is within the supplied retention period,RETAIN
+rule_13,LEGAL_HOLD_RECORD,A supplied legal hold is active,RETAIN
+rule_15,ACCOUNT_TOMBSTONE,Account is deleted and only a stable internal user_id is needed to preserve references to retained records,REDACT
 rule_02,SUPPORT_MESSAGE,"Conversation contains shared customer, agent, or order context that must be retained",REDACT
 rule_03,ANALYTICS_PROFILE,Record is still attributable to a user,ANONYMIZE
 rule_04,MARKETING_PROFILE,Always,DELETE
