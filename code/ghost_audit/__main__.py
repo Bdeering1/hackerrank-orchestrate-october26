@@ -9,6 +9,7 @@ import pathlib
 import sys
 import typing
 
+import ghost_audit.extraction
 import ghost_audit.intent
 import ghost_audit.llm
 import ghost_audit.usage
@@ -17,7 +18,7 @@ from ghost_audit.dataset import DELETION_REQUESTS_FILE_NAME, csv_records, loaded
 from ghost_audit.output_format import HEADER, case_number
 
 if typing.TYPE_CHECKING:
-    from ghost_audit.model import Step
+    from ghost_audit.model import Observation, Step
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_DATASET_DIR = REPO_ROOT / "dataset"
@@ -43,14 +44,23 @@ def main(argv: list[str]) -> int:
     try:
         llm = ghost_audit.llm.connect(tracker)
         # The auditor also needs the intent of each subject's earlier requests.
-        authorizations = asyncio.run(
-            ghost_audit.intent.classify_intents(
-                llm, (request["request_text"] for request in (*requests, *dataset.requests))
+        authorizations, extracted_observations = asyncio.run(
+            _authorizations_and_extracted_observations(
+                llm,
+                [request["request_text"] for request in (*requests, *dataset.requests)],
+                arguments.dataset,
             )
         )
     except ghost_audit.llm.LLMError as error:
-        sys.stderr.write(f"intent routing failed: {error}\n")
+        sys.stderr.write(f"intent routing or evidence extraction failed: {error}\n")
         return 1
+    dataset = dataclasses.replace(
+        dataset,
+        evidence=dataclasses.replace(
+            dataset.evidence,
+            observations=(*dataset.evidence.observations, *extracted_observations),
+        ),
+    )
 
     auditor = Auditor(dataset, authorizations)
     with arguments.output.open("w", encoding="utf-8", newline="") as output_file:
@@ -65,6 +75,14 @@ def main(argv: list[str]) -> int:
     if arguments.usage is not None:
         tracker.write(arguments.usage)
     return 0
+
+
+async def _authorizations_and_extracted_observations(
+    llm: ghost_audit.llm.StructuredLLM, request_texts: list[str], dataset_dir: pathlib.Path
+) -> tuple[dict[str, bool], tuple[Observation, ...]]:
+    # One event loop for both stages: the gateway client is bound to the loop it was created in.
+    authorizations = await ghost_audit.intent.classify_intents(llm, request_texts)
+    return authorizations, await ghost_audit.extraction.extracted_observations(llm, dataset_dir)
 
 
 def _steps_json(steps: list[Step]) -> str:

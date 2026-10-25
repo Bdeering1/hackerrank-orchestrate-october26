@@ -5,7 +5,7 @@ import pytest
 
 import ghost_audit.llm
 from evaluation import runs
-from tests.fakes import FakeTransport, decide_intent, fake_connect
+from tests.fakes import FakeTransport, fake_connect, respond_offline
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +32,7 @@ def fake_llm_connection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    connect = fake_connect(FakeTransport(decide_intent), tmp_path / "llm-cache")
+    connect = fake_connect(FakeTransport(respond_offline), tmp_path / "llm-cache")
     monkeypatch.setattr(ghost_audit.llm, "connect", connect)
 
 

@@ -11,13 +11,14 @@ import random
 import typing
 import uuid
 import weakref
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from dataclasses import dataclass
 
 import openai
 from pydantic import BaseModel, ValidationError
 
 if typing.TYPE_CHECKING:
+    from openai.types.chat import ChatCompletionContentPartParam
     from openai.types.shared_params.response_format_json_schema import ResponseFormatJSONSchema
 
     from ghost_audit.usage import UsageTracker
@@ -54,6 +55,7 @@ class StructuredRequest:
     user_message: str
     schema_name: str
     schema: dict[str, object]
+    image_url: str | None = None
 
 
 class Transport(typing.Protocol):
@@ -83,11 +85,17 @@ class GatewayTransport:
                 },
             },
         )
+        user_content: str | list[ChatCompletionContentPartParam] = request.user_message
+        if request.image_url is not None:
+            user_content = [
+                {"type": "text", "text": request.user_message},
+                {"type": "image_url", "image_url": {"url": request.image_url}},
+            ]
         response = await self._connected_client().chat.completions.create(
             model=request.model,
             messages=[
                 {"role": "system", "content": request.system_prompt},
-                {"role": "user", "content": request.user_message},
+                {"role": "user", "content": user_content},
             ],
             response_format=response_format,
             temperature=0,
@@ -141,14 +149,16 @@ class StructuredLLM:
         system_prompt: str,
         user_message: str,
         response_type: type[T],
+        image_url: str | None = None,
     ) -> T:
-        """Return a validated structured response."""
+        """Return a validated structured response, optionally about an attached image."""
         request = StructuredRequest(
             model=model,
             system_prompt=system_prompt,
             user_message=user_message,
             schema_name=response_type.__name__,
             schema=typing.cast("dict[str, object]", response_type.model_json_schema()),
+            image_url=image_url,
         )
         cache_path = self._cache_path(request)
         if cache_path.exists():
@@ -198,13 +208,17 @@ class StructuredLLM:
         )
 
     def _cache_path(self, request: StructuredRequest) -> pathlib.Path:
+        cache_fields: dict[str, object] = {
+            "model": request.model,
+            "system_prompt": request.system_prompt,
+            "schema": request.schema,
+            "user_message": request.user_message,
+        }
+        # Omitted when absent so image-free requests hash only their text fields.
+        if request.image_url is not None:
+            cache_fields["image_url"] = request.image_url
         cache_input = json.dumps(
-            {
-                "model": request.model,
-                "system_prompt": request.system_prompt,
-                "schema": request.schema,
-                "user_message": request.user_message,
-            },
+            cache_fields,
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,
@@ -227,6 +241,17 @@ def _retry_delay(attempt: int, error: Exception) -> float:
         if retry_after.isdecimal():
             delay = max(delay, float(retry_after))
     return delay
+
+
+async def gathered[T](coroutines: Iterable[Coroutine[object, object, T]]) -> list[T]:
+    """Run coroutines concurrently, raising the first LLMError unwrapped from its group."""
+    try:
+        async with asyncio.TaskGroup() as task_group:
+            tasks = [task_group.create_task(coroutine) for coroutine in coroutines]
+    except* LLMError as errors:
+        error = errors.exceptions[0]
+        raise error from error.__cause__
+    return [task.result() for task in tasks]
 
 
 def connect(usage_tracker: UsageTracker) -> StructuredLLM:

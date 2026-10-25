@@ -46,6 +46,17 @@ def test_parse_uses_disk_cache_and_cache_key_inputs(tmp_path: Path) -> None:
     }
 
 
+def test_parse_cache_key_includes_attached_image(tmp_path: Path) -> None:
+    transport = FakeTransport(lambda _request: Completion('{"answer": true}', 1, 2))
+    llm = StructuredLLM(transport, UsageTracker(), tmp_path)
+    image_urls = ["data:image/png;base64,AAAA", "data:image/png;base64,BBBB"]
+
+    for image_url in image_urls * 2:
+        asyncio.run(llm.parse("test/one", "prompt", "message", Answer, image_url=image_url))
+
+    assert [request.image_url for request in transport.requests] == image_urls
+
+
 @pytest.mark.parametrize(
     "error",
     [

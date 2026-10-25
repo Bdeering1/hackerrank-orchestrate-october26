@@ -13,6 +13,7 @@ if typing.TYPE_CHECKING:
     from pathlib import Path
 
 DELETION_REQUESTS_FILE_NAME = "deletion_requests.csv"
+EVIDENCE_MANIFEST_FILE_NAME = "evidence_files.csv"
 REQUEST_FILE_NAMES = (DELETION_REQUESTS_FILE_NAME, "sample_deletion_requests.csv")
 
 
@@ -31,7 +32,7 @@ class Dataset:
 
 def loaded_dataset(dataset_dir: Path) -> Dataset:
     """Load requests, identities, activity, rules and evidence from a dataset directory."""
-    manifest = csv_records(dataset_dir / "evidence_files.csv")
+    manifest = csv_records(dataset_dir / EVIDENCE_MANIFEST_FILE_NAME)
     request_paths = (dataset_dir / file_name for file_name in REQUEST_FILE_NAMES)
     return Dataset(
         requests=tuple(
