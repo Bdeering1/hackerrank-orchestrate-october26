@@ -122,7 +122,7 @@ class StructuredLLM:
         self,
         transport: Transport,
         usage_tracker: UsageTracker,
-        cache_dir: pathlib.Path,
+        cache_dir: pathlib.Path | None,
         max_attempts: int = 4,
         sleep: Sleep = asyncio.sleep,
     ) -> None:
@@ -151,7 +151,7 @@ class StructuredLLM:
             schema=typing.cast("dict[str, object]", response_type.model_json_schema()),
         )
         cache_path = self._cache_path(request)
-        if cache_path.exists():
+        if cache_path is not None and cache_path.exists():
             try:
                 return response_type.model_validate_json(cache_path.read_text(encoding="utf-8"))
             except ValidationError:
@@ -182,7 +182,8 @@ class StructuredLLM:
                 message = f"LLM request failed: {error!r}"
                 raise LLMError(message) from error
             else:
-                self._write_cache(cache_path, completion.text)
+                if cache_path is not None:
+                    self._write_cache(cache_path, completion.text)
                 return result
 
             if attempt + 1 < self._max_attempts:
@@ -197,7 +198,9 @@ class StructuredLLM:
             asyncio.get_running_loop(), asyncio.Semaphore(CONCURRENCY_LIMIT)
         )
 
-    def _cache_path(self, request: StructuredRequest) -> pathlib.Path:
+    def _cache_path(self, request: StructuredRequest) -> pathlib.Path | None:
+        if self._cache_dir is None:
+            return None
         cache_input = json.dumps(
             {
                 "model": request.model,
@@ -229,6 +232,7 @@ def _retry_delay(attempt: int, error: Exception) -> float:
     return delay
 
 
-def connect(usage_tracker: UsageTracker) -> StructuredLLM:
+def connect(usage_tracker: UsageTracker, *, is_cache_enabled: bool = True) -> StructuredLLM:
     """Create the production LLM client."""
-    return StructuredLLM(GatewayTransport(), usage_tracker, DEFAULT_CACHE_DIR)
+    cache_dir = DEFAULT_CACHE_DIR if is_cache_enabled else None
+    return StructuredLLM(GatewayTransport(), usage_tracker, cache_dir)

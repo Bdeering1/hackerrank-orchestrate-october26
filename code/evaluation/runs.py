@@ -28,7 +28,7 @@ from evaluation.usage import usage_summary
 from evaluation.validate import VALID_STATUSES, data_rows
 
 if typing.TYPE_CHECKING:
-    from evaluation.score import CaseScore
+    from evaluation.score import CaseRows, CaseScore
 
 RUNS_DIR = Path(__file__).resolve().parents[2] / "eval_runs"
 HOLDOUT_DIRNAME = "holdout"
@@ -431,6 +431,11 @@ def _output_case_ids(output_path: Path) -> set[str]:
     return {row[0] for row in data_rows(output_path)}
 
 
+def changed_case_count(first_rows: CaseRows, second_rows: CaseRows) -> int:
+    """Count cases whose status or ordered steps differ between two outputs."""
+    return sum(second_rows[case_id] != row for case_id, row in first_rows.items())
+
+
 def _compare_full_sets(baseline_run_dir: Path, run_dir: Path) -> FullSetComparison:
     baseline_output_path = baseline_run_dir / FULL_OUTPUT_FILENAME
     run_output_path = run_dir / FULL_OUTPUT_FILENAME
@@ -440,12 +445,8 @@ def _compare_full_sets(baseline_run_dir: Path, run_dir: Path) -> FullSetComparis
     status_transitions = {
         baseline_status: dict.fromkeys(STATUSES, 0) for baseline_status in STATUSES
     }
-    changed_case_count = 0
-    for case_id, (baseline_status, baseline_steps) in baseline_rows.items():
-        run_status, run_steps = run_rows[case_id]
-        status_transitions[baseline_status][run_status] += 1
-        if baseline_status != run_status or baseline_steps != run_steps:
-            changed_case_count += 1
+    for case_id, (baseline_status, _) in baseline_rows.items():
+        status_transitions[baseline_status][run_rows[case_id][0]] += 1
 
     disagreements = [
         FullSetCaseDisagreement(
@@ -460,7 +461,7 @@ def _compare_full_sets(baseline_run_dir: Path, run_dir: Path) -> FullSetComparis
     return FullSetComparison(
         len(baseline_rows),
         status_transitions,
-        changed_case_count,
+        changed_case_count(baseline_rows, run_rows),
         sum((score.step_f1 for score in full_scores), Ratio(0, 0)).value,
         sorted(disagreements, key=lambda disagreement: -disagreement.unmatched_step_count)[:10],
         _cost_per_request_usd(baseline_run_dir, len(baseline_rows), FULL_USAGE_FILENAME),

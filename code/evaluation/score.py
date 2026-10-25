@@ -13,6 +13,7 @@ if typing.TYPE_CHECKING:
     from pathlib import Path
 
 COMPARED_FIELDS: typing.Final = ("operation", "state", "evidence_id")
+CaseRows = dict[str, tuple[str, list[Step]]]
 
 
 @dataclass(frozen=True)
@@ -163,7 +164,7 @@ def render_markdown(scores: Collection[CaseScore]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def rows_by_case(path: Path) -> dict[str, tuple[str, list[Step]]]:
+def rows_by_case(path: Path) -> CaseRows:
     return {row[0]: (row[1], _steps(row[2])) for row in data_rows(path)}
 
 

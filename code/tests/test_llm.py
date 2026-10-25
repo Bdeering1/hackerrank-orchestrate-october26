@@ -120,6 +120,20 @@ def test_parse_raises_after_transient_attempts_are_exhausted(tmp_path: Path) -> 
     assert len(transport.requests) == 2
 
 
+def test_parse_without_cache_dir_neither_reads_nor_writes_cache(tmp_path: Path) -> None:
+    transport = FakeTransport(lambda _request: Completion('{"answer": true}', 1, 2))
+    cached_llm = StructuredLLM(transport, UsageTracker(), tmp_path)
+    asyncio.run(cached_llm.parse("test/one", "prompt", "message", Answer))
+    (cache_path,) = tmp_path.glob("*.json")
+    uncached_llm = StructuredLLM(transport, UsageTracker(), None)
+
+    asyncio.run(uncached_llm.parse("test/one", "prompt", "message", Answer))
+    asyncio.run(uncached_llm.parse("test/one", "prompt", "other message", Answer))
+
+    assert len(transport.requests) == 3
+    assert list(tmp_path.glob("*")) == [cache_path]
+
+
 def test_parse_treats_invalid_cache_entry_as_miss(tmp_path: Path) -> None:
     transport = FakeTransport(scripted([Completion('{"answer": true}', 1, 2)] * 2))
     llm = StructuredLLM(transport, UsageTracker(), tmp_path)

@@ -20,3 +20,7 @@ The holdout suite (`cases/holdout.txt`) is samples case_04, case_12 and case_30 
 and case_905. Holdout cases are left out of default runs and promotion and are never used as
 prompt examples. `uv run python -m evaluation.main --holdout` scores them and compares the
 result with the previous holdout run.
+
+`uv run python -m evaluation.main noise [--full-set]` measures run-to-run noise: it runs the
+uncached agent 8 times on the default suite (and the full request set with `--full-set`) and
+prints the composite range, the noise floor and the cost. It never records runs.

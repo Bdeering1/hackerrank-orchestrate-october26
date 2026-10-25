@@ -58,10 +58,15 @@ def fail_to_connect(_request: StructuredRequest) -> Completion:
 
 def fake_connect(
     transport: FakeTransport, cache_dir: Path, max_attempts: int = 4
-) -> Callable[[UsageTracker], StructuredLLM]:
+) -> Callable[..., StructuredLLM]:
     """Return a `ghost_audit.llm.connect` replacement that uses `transport`."""
 
-    def connect(usage_tracker: UsageTracker) -> StructuredLLM:
-        return StructuredLLM(transport, usage_tracker, cache_dir, max_attempts=max_attempts)
+    def connect(usage_tracker: UsageTracker, *, is_cache_enabled: bool = True) -> StructuredLLM:
+        return StructuredLLM(
+            transport,
+            usage_tracker,
+            cache_dir if is_cache_enabled else None,
+            max_attempts=max_attempts,
+        )
 
     return connect

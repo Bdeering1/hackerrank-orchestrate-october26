@@ -31,6 +31,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--requests", type=pathlib.Path)
     parser.add_argument("--output", type=pathlib.Path, default=DEFAULT_OUTPUT_PATH)
     parser.add_argument("--usage", type=pathlib.Path)
+    parser.add_argument("--no-cache", action="store_false", dest="is_cache_enabled")
     arguments = _Arguments()
     parser.parse_args(argv, arguments)
 
@@ -41,7 +42,7 @@ def main(argv: list[str]) -> int:
     dataset = loaded_dataset(arguments.dataset)
     tracker = ghost_audit.usage.UsageTracker()
     try:
-        llm = ghost_audit.llm.connect(tracker)
+        llm = ghost_audit.llm.connect(tracker, is_cache_enabled=arguments.is_cache_enabled)
         # The auditor also needs the intent of each subject's earlier requests.
         authorizations = asyncio.run(
             ghost_audit.intent.classify_intents(
@@ -80,6 +81,7 @@ class _Arguments(argparse.Namespace):
     requests: pathlib.Path | None
     output: pathlib.Path
     usage: pathlib.Path | None
+    is_cache_enabled: bool
 
 
 if __name__ == "__main__":

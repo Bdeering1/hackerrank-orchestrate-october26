@@ -693,6 +693,22 @@ def test_main_keeps_existing_output_when_intent_routing_fails(
     assert output_path.read_text(encoding="utf-8") == "previous output"
 
 
+def test_main_no_cache_flag_calls_the_llm_every_run_without_writing_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache_dir = tmp_path / "llm-cache"
+    transport = FakeTransport(decide_intent)
+    monkeypatch.setattr(ghost_audit.llm, "connect", fake_connect(transport, cache_dir))
+    arguments = [*_main_arguments(REQUESTS_PATH, tmp_path / "output.csv"), "--no-cache"]
+
+    assert main(arguments) == 0
+    calls_per_run = len(transport.requests)
+    assert main(arguments) == 0
+
+    assert len(transport.requests) == 2 * calls_per_run
+    assert not cache_dir.exists()
+
+
 def _main_arguments(requests_path: Path, output_path: Path) -> list[str]:
     return [
         "--dataset",

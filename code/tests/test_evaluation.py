@@ -1,13 +1,16 @@
 import csv
 import json
+import math
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from evaluation.main import FULL_REQUESTS_PATH, main, write_suite
+from evaluation import main as evaluation_main
+from evaluation.main import FULL_REQUESTS_PATH, NOISE_RUNS, main, write_suite
 from evaluation.score import CaseScore, case_scores, pooled_composite
 from evaluation.usage import usage_summary
 from evaluation.validate import csv_rows, validation_errors
@@ -520,3 +523,180 @@ def test_validate_reports_missing_case(
     stderr = capsys.readouterr().err
     assert "validation failed:" in stderr
     assert f"missing case_id: {missing_case_id}" in stderr
+
+
+SONNET_RUN_COST_USD = 2.0
+SONNET_RUN_USAGE = {
+    "models": [
+        {
+            "provider": "anthropic",
+            "model": "claude-sonnet-5.5",
+            "calls": 1,
+            "input_tokens": 1_000_000,
+            "output_tokens": 0,
+        }
+    ]
+}
+NOT_APPLICABLE_ROW_TAIL = ["NOT_APPLICABLE", "[]"]
+CHANGED_FULL_SET_CASES = 3
+EXPECTED_MOST_CHANGED_CASES = 2
+
+
+@dataclass
+class NoiseAgent:
+    """Fake agent whose labelled and full-set outputs differ from run to run."""
+
+    suite_rows: CsvRows
+    full_set_rows: CsvRows
+    exit_codes: list[int] = field(default_factory=list)
+    invalid_run: int | None = None
+    requests_paths: list[Path] = field(default_factory=list)
+    cache_flags: list[bool] = field(default_factory=list)
+
+    def run(
+        self, requests_path: Path, output_path: Path, usage_path: Path, *, is_cache_enabled: bool
+    ) -> int:
+        self.requests_paths.append(requests_path)
+        self.cache_flags.append(is_cache_enabled)
+        call_number = len(self.requests_paths)
+        if self.exit_codes and self.exit_codes[call_number - 1] != 0:
+            return self.exit_codes[call_number - 1]
+        run_number = self.requests_paths.count(requests_path)
+        is_full_set = requests_path == FULL_REQUESTS_PATH
+        rows = (
+            self._full_set_rows_for(run_number) if is_full_set else self._suite_rows_for(run_number)
+        )
+        if call_number == self.invalid_run:
+            rows = rows[:1]
+        _write_rows(output_path, rows)
+        usage_path.write_text(json.dumps(SONNET_RUN_USAGE), encoding="utf-8")
+        return 0
+
+    def _suite_rows_for(self, run_number: int) -> CsvRows:
+        if run_number % 2:
+            return self.suite_rows
+        return _with_not_applicable(self.suite_rows, 1)
+
+    def _full_set_rows_for(self, run_number: int) -> CsvRows:
+        if run_number > CHANGED_FULL_SET_CASES:
+            return self.full_set_rows
+        changeable_rows = [
+            index
+            for index, row in enumerate(self.full_set_rows[1:], start=1)
+            if row[1] != "NOT_APPLICABLE"
+        ]
+        return _with_not_applicable(self.full_set_rows, changeable_rows[run_number - 1])
+
+
+def _with_not_applicable(rows: CsvRows, row_index: int) -> CsvRows:
+    changed_rows = [list(row) for row in rows]
+    changed_rows[row_index][1:] = NOT_APPLICABLE_ROW_TAIL
+    return changed_rows
+
+
+@pytest.fixture(name="noise_agent")
+def _noise_agent(full_set_output_path: Path, monkeypatch: pytest.MonkeyPatch) -> NoiseAgent:
+    agent = NoiseAgent(_suite_label_rows(), csv_rows(full_set_output_path))
+    monkeypatch.setattr(evaluation_main, "_run_agent", agent.run)
+    return agent
+
+
+def test_noise_reports_spread_across_uncached_labelled_runs(
+    noise_agent: NoiseAgent, capsys: pytest.CaptureFixture[str], runs_dir: Path
+) -> None:
+    assert main(["noise"]) == 0
+
+    with tempfile.TemporaryDirectory() as directory:
+        labels_path = write_suite(Path(directory), is_holdout=False).labels_path
+        degraded_path = Path(directory) / PREDICTIONS_FILENAME
+        _write_rows(degraded_path, _with_not_applicable(noise_agent.suite_rows, 1))
+        spread = 100 - pooled_composite(case_scores(degraded_path, labels_path))
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "run 1: composite 100.0%"
+    assert lines[1].startswith("run 2: composite ")
+    assert f"noise floor: {math.ceil(spread * 10) / 10:.1f}" in lines
+    assert f"estimated cost: ${NOISE_RUNS * SONNET_RUN_COST_USD:.2f}" in lines
+    assert not any("full-set" in line for line in lines)
+    assert noise_agent.requests_paths.count(FULL_REQUESTS_PATH) == 0
+    assert noise_agent.cache_flags == [False] * NOISE_RUNS
+    assert not runs_dir.exists()
+
+
+def test_noise_full_set_reports_most_changed_cases_and_total_cost(
+    noise_agent: NoiseAgent, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["noise", "--full-set"]) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert f"most changed full-set cases between runs: {EXPECTED_MOST_CHANGED_CASES}" in lines
+    assert f"estimated cost: ${2 * NOISE_RUNS * SONNET_RUN_COST_USD:.2f}" in lines
+    assert noise_agent.requests_paths.count(FULL_REQUESTS_PATH) == NOISE_RUNS
+    assert noise_agent.cache_flags == [False] * (2 * NOISE_RUNS)
+
+
+@pytest.mark.parametrize(
+    ("composites", "expected_floor"),
+    [
+        pytest.param([90.0] * NOISE_RUNS, "0.0", id="no-spread"),
+        pytest.param([89.8, 90.1, *[90.0] * (NOISE_RUNS - 2)], "0.3", id="float-error-guard"),
+        pytest.param([89.7, 90.01, *[90.0] * (NOISE_RUNS - 2)], "0.4", id="rounds-up"),
+    ],
+)
+def test_noise_floor_rounds_range_up_to_a_tenth(
+    noise_agent: NoiseAgent,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    composites: list[float],
+    expected_floor: str,
+) -> None:
+    scripted_composites = iter(composites)
+    monkeypatch.setattr(evaluation_main, "pooled_composite", lambda _: next(scripted_composites))
+
+    assert main(["noise"]) == 0
+
+    assert f"noise floor: {expected_floor}" in capsys.readouterr().out.splitlines()
+    assert len(noise_agent.requests_paths) == NOISE_RUNS
+
+
+@pytest.mark.parametrize(
+    ("argv", "failure", "expected_exit_code"),
+    [
+        pytest.param(["noise"], {"exit_codes": [0, 0, 7]}, 7, id="agent-exit"),
+        pytest.param(["noise"], {"invalid_run": 3}, 1, id="invalid-labelled-output"),
+        pytest.param(["noise", "--full-set"], {"invalid_run": 2}, 1, id="invalid-full-set-output"),
+    ],
+)
+def test_noise_aborts_on_failed_or_invalid_run(
+    noise_agent: NoiseAgent,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+    failure: dict[str, object],
+    expected_exit_code: int,
+) -> None:
+    for name, value in failure.items():
+        setattr(noise_agent, name, value)
+
+    assert main(argv) == expected_exit_code
+
+    assert "noise floor" not in capsys.readouterr().out
+    assert len(noise_agent.requests_paths) < NOISE_RUNS
+
+
+def test_noise_full_set_flag_is_only_accepted_after_the_subcommand() -> None:
+    with pytest.raises(SystemExit) as error:
+        main(["--full-set", "noise"])
+
+    assert error.value.code == 2
+
+
+def test_run_agent_passes_no_cache_flag_only_when_cache_is_disabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    arguments: list[list[str]] = []
+    monkeypatch.setattr(evaluation_main, "agent_main", lambda argv: arguments.append(argv) or 0)
+
+    evaluation_main._run_agent(tmp_path, tmp_path, tmp_path)
+    evaluation_main._run_agent(tmp_path, tmp_path, tmp_path, is_cache_enabled=False)
+
+    assert "--no-cache" not in arguments[0]
+    assert "--no-cache" in arguments[1]

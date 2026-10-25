@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import itertools
+import math
 import sys
 import tempfile
 import typing
@@ -13,11 +15,12 @@ from evaluation.runs import (
     FullSetPaths,
     PromotionRefusedError,
     RunFiles,
+    changed_case_count,
     promote_run,
     record_holdout_run,
     record_run,
 )
-from evaluation.score import case_scores, render_markdown
+from evaluation.score import case_scores, pooled_composite, render_markdown, rows_by_case
 from evaluation.usage import format_usage_summary, usage_summary
 from evaluation.validate import csv_rows, validation_errors
 from ghost_audit.__main__ import DEFAULT_OUTPUT_PATH
@@ -26,6 +29,8 @@ from ghost_audit.output_format import case_number
 
 if typing.TYPE_CHECKING:
     from collections.abc import Callable
+
+    from evaluation.score import CaseRows
 
 DATASET_DIR = Path(__file__).resolve().parents[2] / "dataset"
 CASES_DIR = Path(__file__).with_name("cases")
@@ -38,6 +43,8 @@ HOLDOUT_PATH = CASES_DIR / "holdout.txt"
 EVIDENCE_FILES_PATH = DATASET_DIR / "evidence_files.csv"
 SYSTEM_ACTIVITY_PATH = DATASET_DIR / "system_activity.csv"
 AUDIT_LOG_PATH = DATASET_DIR / "user_audit_log.csv"
+NOISE_RUNS = 8
+COMPOSITE_PRECISION_DIGITS = 6
 
 
 @dataclass(frozen=True)
@@ -60,6 +67,8 @@ def main(argv: list[str]) -> int:
     promote_parser.add_argument("run_id")
     validate_parser = subparsers.add_parser("validate")
     validate_parser.add_argument("output_path", nargs="?", type=Path)
+    noise_parser = subparsers.add_parser("noise")
+    noise_parser.add_argument("--full-set", action="store_true", dest="is_noise_full_set")
     arguments = _Arguments()
     parser.parse_args(argv, arguments)
 
@@ -73,6 +82,9 @@ def main(argv: list[str]) -> int:
 
     if arguments.command == "validate":
         return _validate_full_set(arguments.output_path or DEFAULT_OUTPUT_PATH)
+
+    if arguments.command == "noise":
+        return _measure_noise(is_full_set=arguments.is_noise_full_set)
 
     with tempfile.TemporaryDirectory() as temporary_directory:
         directory = Path(temporary_directory)
@@ -99,7 +111,9 @@ def main(argv: list[str]) -> int:
         return _score_predictions(output_path, suite, usage_path, full_set_paths)
 
 
-def _run_agent(requests_path: Path, output_path: Path, usage_path: Path) -> int:
+def _run_agent(
+    requests_path: Path, output_path: Path, usage_path: Path, *, is_cache_enabled: bool = True
+) -> int:
     return agent_main(
         [
             "--requests",
@@ -108,8 +122,75 @@ def _run_agent(requests_path: Path, output_path: Path, usage_path: Path) -> int:
             str(output_path),
             "--usage",
             str(usage_path),
+            *([] if is_cache_enabled else ["--no-cache"]),
         ]
     )
+
+
+def _measure_noise(*, is_full_set: bool) -> int:
+    """Run the uncached agent repeatedly and report the spread between runs."""
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        directory = Path(temporary_directory)
+        suite = write_suite(directory, is_holdout=False)
+        suite_audit_times = audit_times(suite.requests_path)
+        full_audit_times = audit_times(FULL_REQUESTS_PATH)
+        composites: list[float] = []
+        full_set_rows: list[CaseRows] = []
+        total_cost_usd = 0.0
+        for run_number in range(1, NOISE_RUNS + 1):
+            output_path = directory / f"output_{run_number}.csv"
+            usage_path = directory / f"usage_{run_number}.json"
+            exit_code = _run_validated_uncached_agent(
+                suite.requests_path, output_path, usage_path, suite_audit_times
+            )
+            if exit_code != 0:
+                return exit_code
+            composite = pooled_composite(case_scores(output_path, suite.labels_path))
+            composites.append(composite)
+            total_cost_usd += _estimated_cost_usd(usage_path, len(suite_audit_times))
+            sys.stdout.write(f"run {run_number}: composite {composite:.1f}%\n")
+            if not is_full_set:
+                continue
+
+            full_output_path = directory / f"full_output_{run_number}.csv"
+            full_usage_path = directory / f"full_usage_{run_number}.json"
+            exit_code = _run_validated_uncached_agent(
+                FULL_REQUESTS_PATH, full_output_path, full_usage_path, full_audit_times
+            )
+            if exit_code != 0:
+                return exit_code
+            full_set_rows.append(rows_by_case(full_output_path))
+            total_cost_usd += _estimated_cost_usd(full_usage_path, len(full_audit_times))
+
+    score_range = max(composites) - min(composites)
+    rounded_range = math.ceil(round(score_range * 10, COMPOSITE_PRECISION_DIGITS)) / 10
+    sys.stdout.write(f"range: {score_range:.3f} points\n")
+    sys.stdout.write(f"noise floor: {rounded_range:.1f}\n")
+    if is_full_set:
+        most_changed_cases = max(
+            changed_case_count(first_rows, second_rows)
+            for first_rows, second_rows in itertools.combinations(full_set_rows, 2)
+        )
+        sys.stdout.write(f"most changed full-set cases between runs: {most_changed_cases}\n")
+    sys.stdout.write(f"estimated cost: ${total_cost_usd:.2f}\n")
+    return 0
+
+
+def _run_validated_uncached_agent(
+    requests_path: Path,
+    output_path: Path,
+    usage_path: Path,
+    request_audit_times: dict[str, datetime],
+) -> int:
+    """Run the agent without its cache and return a nonzero exit code on any failure."""
+    agent_exit_code = _run_agent(requests_path, output_path, usage_path, is_cache_enabled=False)
+    if agent_exit_code != 0:
+        return agent_exit_code
+    return int(_report_validation_errors(output_path, request_audit_times))
+
+
+def _estimated_cost_usd(usage_path: Path, request_count: int) -> float:
+    return usage_summary(usage_path, request_count).overall.estimated_cost_usd
 
 
 def holdout_case_ids() -> frozenset[str]:
@@ -235,6 +316,7 @@ class _Arguments(argparse.Namespace):
     command: str | None
     run_id: str
     output_path: Path | None
+    is_noise_full_set: bool
 
 
 if __name__ == "__main__":
