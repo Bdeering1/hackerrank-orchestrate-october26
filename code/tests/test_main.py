@@ -287,13 +287,13 @@ def test_main_writes_valid_output_and_usage(run):
             "case_21",
             "INCOMPLETE",
             _remaining_account_flow_and_backup_steps("evidence_04"),
-            id="active connector and restorable backup survive snapshot omission",
+            id="active connector and restorable backup remediated before account delete",
         ),
         pytest.param(
             "case_22",
             "COMPLETE",
             _blocked_flow_and_backup_steps("evidence_04"),
-            id="disabled connector and blocked backup",
+            id="disabled connector and blocked backup survive snapshot omission",
         ),
     ],
 )

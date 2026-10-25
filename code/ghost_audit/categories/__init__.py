@@ -27,7 +27,7 @@ def has_falsey_value(record: Mapping[str, object], field_name: str) -> bool:
 
 def state_from_result(record: Mapping[str, object], compliant_state: str) -> str:
     """Return a ledger result state, treating malformed values as active."""
-    result = str(record.get("result", "")).upper()
+    result = str(record["result"]).upper()
     return compliant_state if result == compliant_state else ACTIVE
 
 

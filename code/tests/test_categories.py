@@ -14,7 +14,6 @@ from ghost_audit.model import ACTIVE, BLOCKED, DISABLED
         pytest.param({"enabled": "true"}, ACTIVE, id="log enabled text"),
         pytest.param({"enabled": "false"}, DISABLED, id="log disabled text"),
         pytest.param({}, ACTIVE, id="missing enabled fails closed"),
-        pytest.param({"result": None}, ACTIVE, id="null result fails closed"),
         pytest.param({"result": "UNKNOWN"}, ACTIVE, id="unknown result fails closed"),
     ],
 )

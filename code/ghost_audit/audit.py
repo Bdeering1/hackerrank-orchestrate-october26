@@ -5,6 +5,7 @@ import typing
 from datetime import datetime
 
 from ghost_audit import identity
+from ghost_audit.categories import backup, data_flow
 from ghost_audit.model import ABSENT, BLOCKED, DISABLED, Step
 from ghost_audit.output_format import (
     BLOCK_RESTORE,
@@ -36,7 +37,7 @@ type ResourceKey = tuple[str, str]
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class PlanRule:
-    """The end state a rule action requires and the steps that reach and check it."""
+    """The end state a rule action or category requires and the steps that reach and check it."""
 
     end_state: str
     finding: Operation
@@ -48,13 +49,13 @@ PLAN_RULES = {
     "DELETE": PlanRule(ABSENT, REPORT_REMAINING_RECORD, DELETE_RECORD, VERIFY_RECORD_ABSENT),
 }
 CATEGORY_PLAN_RULES = {
-    "DATA_FLOW": PlanRule(
+    data_flow.CATEGORY.rule_category: PlanRule(
         DISABLED,
         REPORT_ACTIVE_DATA_FLOW,
         DISABLE_DATA_FLOW,
         VERIFY_DATA_FLOW_DISABLED,
     ),
-    "BACKUP_ARCHIVE": PlanRule(
+    backup.CATEGORY.rule_category: PlanRule(
         BLOCKED,
         REPORT_RESTORE_RISK,
         BLOCK_RESTORE,
