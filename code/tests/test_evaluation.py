@@ -7,10 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from evaluation.main import main, write_suite
+from evaluation.main import FULL_REQUESTS_PATH, main, write_suite
 from evaluation.score import CaseScore, case_scores, pooled_composite
 from evaluation.usage import usage_summary
 from evaluation.validate import csv_rows, validation_errors
+from ghost_audit.__main__ import main as agent_main
 from ghost_audit.usage import UsageTracker
 
 FIRST_CASE_ID = "case_01"
@@ -482,3 +483,40 @@ def test_usage_summary_rejects_unknown_model(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="unknown"):
         usage_summary(usage_path, request_count=1)
+
+
+@pytest.fixture(name="full_set_output_path")
+def _full_set_output_path(tmp_path: Path) -> Path:
+    output_path = tmp_path / PREDICTIONS_FILENAME
+    assert agent_main(["--requests", str(FULL_REQUESTS_PATH), "--output", str(output_path)]) == 0
+    return output_path
+
+
+def test_validate_accepts_full_set_output(
+    full_set_output_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main(["validate", str(full_set_output_path)]) == 0
+
+    assert "518 cases valid" in capsys.readouterr().out
+
+
+def test_validate_defaults_to_root_output(
+    full_set_output_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("evaluation.main.DEFAULT_OUTPUT_PATH", full_set_output_path)
+
+    assert main(["validate"]) == 0
+
+
+def test_validate_reports_missing_case(
+    full_set_output_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rows = csv_rows(full_set_output_path)
+    missing_case_id = rows[-1][0]
+    _write_rows(full_set_output_path, rows[:-1])
+
+    assert main(["validate", str(full_set_output_path)]) == 1
+
+    stderr = capsys.readouterr().err
+    assert "validation failed:" in stderr
+    assert f"missing case_id: {missing_case_id}" in stderr

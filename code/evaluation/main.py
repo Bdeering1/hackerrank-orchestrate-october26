@@ -19,6 +19,7 @@ from evaluation.runs import (
 from evaluation.score import case_scores, render_markdown
 from evaluation.usage import format_usage_summary, usage_summary
 from evaluation.validate import csv_rows, validation_errors
+from ghost_audit.__main__ import DEFAULT_OUTPUT_PATH
 from ghost_audit.__main__ import main as agent_main
 from ghost_audit.output_format import case_number
 
@@ -29,6 +30,7 @@ DATASET_DIR = Path(__file__).resolve().parents[2] / "dataset"
 CASES_DIR = Path(__file__).with_name("cases")
 SAMPLE_LABELS_PATH = DATASET_DIR / "sample_output.csv"
 SAMPLE_REQUESTS_PATH = DATASET_DIR / "sample_deletion_requests.csv"
+FULL_REQUESTS_PATH = DATASET_DIR / "deletion_requests.csv"
 CUSTOM_LABELS_PATH = CASES_DIR / "custom_output.csv"
 CUSTOM_REQUESTS_PATH = CASES_DIR / "custom_requests.csv"
 HOLDOUT_PATH = CASES_DIR / "holdout.txt"
@@ -47,17 +49,23 @@ class Suite:
 
 
 def main(argv: list[str]) -> int:
-    """Run, validate or promote suite predictions and render weighted scores."""
+    """Run, score or promote suite predictions, or validate a full-set output."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--predictions", type=Path)
     parser.add_argument("--holdout", action="store_true")
-    promote_parser = parser.add_subparsers(dest="command").add_parser("promote")
+    subparsers = parser.add_subparsers(dest="command")
+    promote_parser = subparsers.add_parser("promote")
     promote_parser.add_argument("run_id")
+    validate_parser = subparsers.add_parser("validate")
+    validate_parser.add_argument("output_path", nargs="?", type=Path)
     arguments = _Arguments()
     parser.parse_args(argv, arguments)
 
     if arguments.command == "promote":
         return _promote(arguments.run_id)
+
+    if arguments.command == "validate":
+        return _validate_full_set(arguments.output_path or DEFAULT_OUTPUT_PATH)
 
     with tempfile.TemporaryDirectory() as temporary_directory:
         directory = Path(temporary_directory)
@@ -131,11 +139,7 @@ def _write_merged_rows(
 def _score_predictions(predictions_path: Path, suite: Suite, usage_path: Path | None = None) -> int:
     """Validate predictions and render weighted suite scores."""
     request_audit_times = audit_times(suite.requests_path)
-    errors = validation_errors(predictions_path, request_audit_times, evidence_times())
-    if errors:
-        sys.stderr.write("validation failed:\n")
-        for error in errors:
-            sys.stderr.write(f"{error}\n")
+    if _report_validation_errors(predictions_path, request_audit_times):
         return 1
 
     scores_markdown = render_markdown(case_scores(predictions_path, suite.labels_path))
@@ -154,6 +158,30 @@ def _score_predictions(predictions_path: Path, suite: Suite, usage_path: Path | 
         )
     )
     return 0
+
+
+def _validate_full_set(output_path: Path) -> int:
+    """Validate an output file against the full request set without scoring."""
+    request_audit_times = audit_times(FULL_REQUESTS_PATH)
+    if _report_validation_errors(output_path, request_audit_times):
+        return 1
+
+    sys.stdout.write(f"{output_path}: {len(request_audit_times)} cases valid\n")
+    return 0
+
+
+def _report_validation_errors(
+    predictions_path: Path, request_audit_times: dict[str, datetime]
+) -> bool:
+    """Write validation errors to stderr and return whether there were any."""
+    errors = validation_errors(predictions_path, request_audit_times, evidence_times())
+    if not errors:
+        return False
+
+    sys.stderr.write("validation failed:\n")
+    for error in errors:
+        sys.stderr.write(f"{error}\n")
+    return True
 
 
 def _promote(run_id: str) -> int:
@@ -177,6 +205,7 @@ class _Arguments(argparse.Namespace):
     holdout: bool
     command: str | None
     run_id: str
+    output_path: Path | None
 
 
 if __name__ == "__main__":
