@@ -97,9 +97,7 @@ class Auditor:
         ]
 
     def audited_case(self, request: Mapping[str, str]) -> tuple[str, list[Step]]:
-        """Return the deletion status and ordered steps for one request."""
-        if not _authorizes_deletion(request["request_text"]):
-            return NOT_APPLICABLE, []
+        """Return the deletion status and ordered steps for one deletion request."""
         requested_at = datetime.fromisoformat(request["requested_at"])
         audit_at = datetime.fromisoformat(request["audit_at"])
         request_identifier = identity.normalized_identifier(request["email"]) or ""
@@ -207,10 +205,6 @@ class Auditor:
                 if coverage.observed_at <= at and resource_id not in coverage.resource_ids
             )
         return PLAN_RULES[action], proofs
-
-
-def _authorizes_deletion(_request_text: str) -> bool:
-    return True
 
 
 def _gap_copies(rule: PlanRule, proofs: Iterable[_Proof]) -> set[str]:

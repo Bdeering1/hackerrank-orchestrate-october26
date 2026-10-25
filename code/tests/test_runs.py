@@ -24,7 +24,7 @@ EXPENSIVE_USAGE = {
     "models": [
         {
             "provider": "anthropic",
-            "model": "claude-sonnet-5-5",
+            "model": "claude-sonnet-5.5",
             "calls": 1,
             "input_tokens": 1_000_000,
             "output_tokens": 0,
