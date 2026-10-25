@@ -14,6 +14,14 @@
           "email": "diya.k4436@outlook.com",
           "phone": "+91 96023 32879",
           "account_status": "ACTIVE"
+        },
+        {
+          "resource_id": "account_3232",
+          "customer_reference": "user_01",
+          "full_name": "Leila Haddad",
+          "email": "leila.haddad@yahoo.com",
+          "phone": "+212 6 48 27 15 93",
+          "account_status": "ACTIVE"
         }
       ]
     },

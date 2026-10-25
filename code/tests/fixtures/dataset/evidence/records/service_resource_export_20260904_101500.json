@@ -32,7 +32,7 @@
           "observed_at": "2026-09-04T09:45:00Z",
           "profile": null,
           "resource_id": "account_2101",
-          "customer_reference": "user_21",
+          "customer_reference": "user_31",
           "status_code": 200
         }
       ]
@@ -41,13 +41,13 @@
       "connectors": [
         {
           "resource_id": "data_flow_2101",
-          "customer_reference": "user_21",
+          "customer_reference": "user_31",
           "enabled": true,
           "observed_at": "2026-09-04T09:45:00Z"
         },
         {
           "resource_id": "data_flow_2202",
-          "customer_reference": "user_22",
+          "customer_reference": "user_32",
           "enabled": false,
           "observed_at": "2026-09-04T09:45:00Z"
         }
@@ -57,13 +57,13 @@
       "restore_entries": [
         {
           "resource_id": "backup_2101",
-          "customer_reference": "user_21",
+          "customer_reference": "user_31",
           "restore_allowed": true,
           "observed_at": "2026-09-04T09:45:00Z"
         },
         {
           "resource_id": "backup_2202",
-          "customer_reference": "user_22",
+          "customer_reference": "user_32",
           "restore_allowed": false,
           "observed_at": "2026-09-04T09:45:00Z"
         }
