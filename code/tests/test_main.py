@@ -19,23 +19,20 @@ from tests.fakes import (
 DATASET_DIR = Path(__file__).resolve().parent / "fixtures" / "dataset"
 REQUESTS_PATH = DATASET_DIR / "deletion_requests.csv"
 ACCOUNT_SYSTEM = "account_service"
-BACKUP_SYSTEM = "backup_service"
-DATA_FLOW_SYSTEM = "integration_service"
+SYSTEM_BY_RESOURCE_PREFIX = {
+    "account": ACCOUNT_SYSTEM,
+    "backup": "backup_service",
+    "data_flow": "integration_service",
+}
 
 
 def _step(
-    step_no: int,
-    phase: str,
-    resource_id: str,
-    operation: str,
-    state: str,
-    evidence_id: str,
-    system_id: str = ACCOUNT_SYSTEM,
+    step_no: int, phase: str, resource_id: str, operation: str, state: str, evidence_id: str
 ) -> dict[str, object]:
     return {
         "step_no": step_no,
         "phase": phase,
-        "system_id": system_id,
+        "system_id": ACCOUNT_SYSTEM,
         "resource_id": resource_id,
         "operation": operation,
         "state": state,
@@ -48,6 +45,23 @@ def _remaining_account_steps(resource_id: str, evidence_id: str) -> list[dict[st
         _step(1, "FINDING", resource_id, "REPORT_REMAINING_RECORD", "PRESENT", evidence_id),
         _step(2, "REMEDIATION", resource_id, "DELETE_RECORD", "ABSENT", ""),
         _step(3, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", ""),
+    ]
+
+
+def _numbered_steps(*steps: tuple[str, str, str, str, str]) -> list[dict[str, object]]:
+    return [
+        {
+            "step_no": step_no,
+            "phase": phase,
+            "system_id": SYSTEM_BY_RESOURCE_PREFIX[resource_id.rsplit("_", 1)[0]],
+            "resource_id": resource_id,
+            "operation": operation,
+            "state": state,
+            "evidence_id": evidence_id,
+        }
+        for step_no, (phase, resource_id, operation, state, evidence_id) in enumerate(
+            steps, start=1
+        )
     ]
 
 
@@ -104,92 +118,30 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_01",
             "INCOMPLETE",
-            [
-                _step(
-                    1,
-                    "FINDING",
-                    "account_101",
-                    "REPORT_REMAINING_RECORD",
-                    "PRESENT",
-                    "evidence_01",
-                ),
-                _step(
-                    2,
-                    "FINDING",
-                    "data_flow_101",
-                    "REPORT_ACTIVE_DATA_FLOW",
-                    "ACTIVE",
-                    "evidence_06",
-                    DATA_FLOW_SYSTEM,
-                ),
-                _step(
-                    3,
-                    "REMEDIATION",
-                    "data_flow_101",
-                    "DISABLE_DATA_FLOW",
-                    "DISABLED",
-                    "",
-                    DATA_FLOW_SYSTEM,
-                ),
-                _step(
-                    4,
-                    "REMEDIATION",
-                    "account_101",
-                    "DELETE_RECORD",
-                    "ABSENT",
-                    "",
-                ),
-                _step(
-                    5,
-                    "VERIFICATION",
-                    "account_101",
-                    "VERIFY_RECORD_ABSENT",
-                    "ABSENT",
-                    "",
-                ),
-                _step(
-                    6,
-                    "VERIFICATION",
-                    "data_flow_101",
-                    "VERIFY_DATA_FLOW_DISABLED",
-                    "DISABLED",
-                    "",
-                    DATA_FLOW_SYSTEM,
-                ),
-            ],
+            _numbered_steps(
+                ("FINDING", "account_101", "REPORT_REMAINING_RECORD", "PRESENT", "evidence_01"),
+                ("FINDING", "data_flow_101", "REPORT_ACTIVE_DATA_FLOW", "ACTIVE", "evidence_06"),
+                ("REMEDIATION", "data_flow_101", "DISABLE_DATA_FLOW", "DISABLED", ""),
+                ("REMEDIATION", "account_101", "DELETE_RECORD", "ABSENT", ""),
+                ("VERIFICATION", "account_101", "VERIFY_RECORD_ABSENT", "ABSENT", ""),
+                ("VERIFICATION", "data_flow_101", "VERIFY_DATA_FLOW_DISABLED", "DISABLED", ""),
+            ),
             id="enabled connector remains",
         ),
         pytest.param(
             "case_02",
             "COMPLETE",
-            [
-                _step(
-                    1,
-                    "VERIFICATION",
-                    "account_202",
-                    "VERIFY_RECORD_ABSENT",
-                    "ABSENT",
-                    "evidence_02",
-                ),
-                _step(
-                    2,
+            _numbered_steps(
+                ("VERIFICATION", "account_202", "VERIFY_RECORD_ABSENT", "ABSENT", "evidence_02"),
+                (
                     "VERIFICATION",
                     "data_flow_202",
                     "VERIFY_DATA_FLOW_DISABLED",
                     "DISABLED",
                     "evidence_06",
-                    DATA_FLOW_SYSTEM,
                 ),
-                _step(
-                    3,
-                    "VERIFICATION",
-                    "backup_202",
-                    "VERIFY_RESTORE_BLOCKED",
-                    "BLOCKED",
-                    "evidence_06",
-                    BACKUP_SYSTEM,
-                ),
-            ],
+                ("VERIFICATION", "backup_202", "VERIFY_RESTORE_BLOCKED", "BLOCKED", "evidence_06"),
+            ),
             id="historical identity has disabled flow and blocked backup",
         ),
         pytest.param(
@@ -201,35 +153,11 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_21",
             "INCOMPLETE",
-            [
-                _step(
-                    1,
-                    "FINDING",
-                    "backup_210",
-                    "REPORT_RESTORE_RISK",
-                    "ACTIVE",
-                    "evidence_06",
-                    BACKUP_SYSTEM,
-                ),
-                _step(
-                    2,
-                    "REMEDIATION",
-                    "backup_210",
-                    "BLOCK_RESTORE",
-                    "BLOCKED",
-                    "",
-                    BACKUP_SYSTEM,
-                ),
-                _step(
-                    3,
-                    "VERIFICATION",
-                    "backup_210",
-                    "VERIFY_RESTORE_BLOCKED",
-                    "BLOCKED",
-                    "",
-                    BACKUP_SYSTEM,
-                ),
-            ],
+            _numbered_steps(
+                ("FINDING", "backup_210", "REPORT_RESTORE_RISK", "ACTIVE", "evidence_06"),
+                ("REMEDIATION", "backup_210", "BLOCK_RESTORE", "BLOCKED", ""),
+                ("VERIFICATION", "backup_210", "VERIFY_RESTORE_BLOCKED", "BLOCKED", ""),
+            ),
             id="restorable backup remains",
         ),
         pytest.param(
@@ -333,7 +261,7 @@ def test_main_writes_valid_output_and_usage(run):
         ),
     ],
 )
-def test_main_audits_account_records(run, case_id, expected_status, expected_steps):
+def test_main_audits_linked_records(run, case_id, expected_status, expected_steps):
     _, output_dir = run
     output_rows = {
         row[0]: (row[1], json.loads(row[2])) for row in data_rows(output_dir / "output.csv")

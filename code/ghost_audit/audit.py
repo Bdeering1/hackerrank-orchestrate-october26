@@ -201,6 +201,7 @@ class Auditor:
             for observation in observations
         ]
         category_rule = CATEGORY_PLAN_RULES.get(category)
+        # A snapshot that leaves out a connector or backup does not prove it is disabled or blocked.
         if category_rule is not None:
             return category_rule, proofs
         proofs.extend(
