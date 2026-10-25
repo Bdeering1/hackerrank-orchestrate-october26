@@ -4,12 +4,13 @@ import csv
 import json
 import typing
 
+from ghost_audit.output_format import HEADER, case_number
+
 if typing.TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
     from pathlib import Path
 
-HEADER = ("case_id", "deletion_status", "steps_json")
 VALID_STATUSES = frozenset({"COMPLETE", "INCOMPLETE", "NOT_APPLICABLE"})
 STEP_FIELDS = frozenset(
     {"step_no", "phase", "system_id", "resource_id", "operation", "state", "evidence_id"}
@@ -78,11 +79,11 @@ def validation_errors(
             errors.append(_row_error(line_number, case_id, "unexpected case_id"))
 
         try:
-            parsed_case_number = case_number(case_id)
+            number = case_number(case_id)
         except ValueError:
             errors.append(_row_error(line_number, case_id, "malformed case_id"))
         else:
-            case_positions.append((parsed_case_number, line_number, case_id))
+            case_positions.append((number, line_number, case_id))
 
         deletion_status = row[1]
         if deletion_status not in VALID_STATUSES:
@@ -115,15 +116,6 @@ def csv_rows(path: Path) -> list[list[str]]:
 def data_rows(path: Path) -> list[list[str]]:
     """Return CSV rows after the header."""
     return csv_rows(path)[1:]
-
-
-def case_number(case_id: str) -> int:
-    """Return the number in a `case_<n>` ID, or raise ValueError if malformed."""
-    prefix = "case_"
-    suffix = case_id.removeprefix(prefix)
-    if suffix == case_id or not suffix.isdecimal():
-        raise ValueError
-    return int(suffix)
 
 
 def _step_errors(
@@ -315,8 +307,8 @@ def _step_error(line_number: int, case_id: str, step_position: int, message: str
 def _sort_errors(case_positions: list[tuple[int, int, str]]) -> list[str]:
     errors: list[str] = []
     previous_number = -1
-    for case_number, line_number, case_id in case_positions:
-        if case_number < previous_number:
+    for number, line_number, case_id in case_positions:
+        if number < previous_number:
             errors.append(_row_error(line_number, case_id, "rows are not sorted by case number"))
-        previous_number = case_number
+        previous_number = number
     return errors

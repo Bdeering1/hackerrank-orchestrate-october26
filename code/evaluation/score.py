@@ -5,7 +5,8 @@ import typing
 from collections import Counter
 from dataclasses import dataclass
 
-from evaluation.validate import Step, case_number, data_rows
+from evaluation.validate import Step, data_rows
+from ghost_audit.output_format import case_number
 
 if typing.TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable
