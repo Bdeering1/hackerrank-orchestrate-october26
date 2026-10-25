@@ -1,11 +1,20 @@
+import csv
 import json
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
+import ghost_audit.llm
 from evaluation.validate import data_rows, validation_errors
 from ghost_audit.__main__ import main
+from tests.fakes import (
+    NO_DELETE_MARKER,
+    FakeTransport,
+    decide_intent,
+    fail_to_connect,
+    fake_connect,
+)
 
 DATASET_DIR = Path(__file__).resolve().parent / "fixtures" / "dataset"
 REQUESTS_PATH = DATASET_DIR / "deletion_requests.csv"
@@ -41,16 +50,19 @@ def _absent_account_steps(resource_id: str, evidence_id: str) -> list[dict[str, 
 @pytest.fixture(scope="module")
 def run(tmp_path_factory: pytest.TempPathFactory) -> tuple[int, Path]:
     output_dir = tmp_path_factory.mktemp("output")
-    exit_code = main(
-        [
-            "--dataset",
-            str(DATASET_DIR),
-            "--output",
-            str(output_dir / "output.csv"),
-            "--usage",
-            str(output_dir / "usage.json"),
-        ]
-    )
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        connect = fake_connect(FakeTransport(decide_intent), output_dir / "llm-cache")
+        monkeypatch.setattr(ghost_audit.llm, "connect", connect)
+        exit_code = main(
+            [
+                "--dataset",
+                str(DATASET_DIR),
+                "--output",
+                str(output_dir / "output.csv"),
+                "--usage",
+                str(output_dir / "usage.json"),
+            ]
+        )
     return exit_code, output_dir
 
 
@@ -63,7 +75,18 @@ def test_main_writes_valid_output_and_usage(run):
     }
 
     assert exit_code == 0
-    assert json.loads((output_dir / "usage.json").read_text(encoding="utf-8")) == {"models": []}
+    # Every fixture request shares one text, so intent routing makes one call.
+    assert json.loads((output_dir / "usage.json").read_text(encoding="utf-8")) == {
+        "models": [
+            {
+                "provider": "anthropic",
+                "model": "claude-haiku-5.5",
+                "calls": 1,
+                "input_tokens": 3,
+                "output_tokens": 5,
+            }
+        ]
+    }
     assert validation_errors(output_dir / "output.csv", audit_times, evidence_times) == []
 
 
@@ -196,3 +219,51 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
     }
 
     assert output_rows[case_id] == (expected_status, expected_steps)
+
+
+def test_main_skips_audit_for_requests_that_do_not_authorize_deletion(tmp_path: Path) -> None:
+    requests_path = tmp_path / "deletion_requests.csv"
+    output_path = tmp_path / "output.csv"
+    _write_requests_with_text(requests_path, "case_01", f"{NO_DELETE_MARKER} send me a copy")
+
+    assert main(_main_arguments(requests_path, output_path)) == 0
+
+    output_rows = {row[0]: (row[1], row[2]) for row in data_rows(output_path)}
+    assert output_rows["case_01"] == ("NOT_APPLICABLE", "[]")
+    assert output_rows["case_02"][0] == "COMPLETE"
+
+
+def test_main_keeps_existing_output_when_intent_routing_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_path = tmp_path / "output.csv"
+    output_path.write_text("previous output", encoding="utf-8")
+    connect = fake_connect(FakeTransport(fail_to_connect), tmp_path / "llm-cache", max_attempts=1)
+    monkeypatch.setattr(ghost_audit.llm, "connect", connect)
+
+    assert main(_main_arguments(REQUESTS_PATH, output_path)) == 1
+
+    assert output_path.read_text(encoding="utf-8") == "previous output"
+
+
+def _main_arguments(requests_path: Path, output_path: Path) -> list[str]:
+    return [
+        "--dataset",
+        str(DATASET_DIR),
+        "--requests",
+        str(requests_path),
+        "--output",
+        str(output_path),
+    ]
+
+
+def _write_requests_with_text(path: Path, case_id: str, request_text: str) -> None:
+    with REQUESTS_PATH.open(encoding="utf-8", newline="") as requests_file:
+        requests = list(csv.DictReader(requests_file))
+    for request in requests:
+        if request["case_id"] == case_id:
+            request["request_text"] = request_text
+    with path.open("w", encoding="utf-8", newline="") as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=list(requests[0]))
+        writer.writeheader()
+        writer.writerows(requests)
