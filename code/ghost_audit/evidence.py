@@ -248,13 +248,13 @@ class _EvidenceReader:
             if TRACE_ID in event:
                 identifiers_by_trace.setdefault(event[TRACE_ID], set()).update(_identifiers(event))
         for event in events:
-            observed_at = _time(event["timestamp"])
             if RECORD_TYPE in event:
-                self._read_ledger_item(event, observed_at)
+                self._read_ledger_item(event, _time(event["timestamp"]))
                 continue
             category = self._category(event.get("event"))
             if category is None or RESOURCE_ID not in event:
                 continue
+            observed_at = _time(event["timestamp"])
             trace_identifiers = identifiers_by_trace.get(event.get(TRACE_ID, ""))
             identifiers = None if trace_identifiers is None else frozenset(trace_identifiers)
             self._observe(
@@ -279,7 +279,8 @@ def _sql_rows_by_table(script: str) -> dict[str, list[Record]]:
         rows_by_table: dict[str, list[Record]] = {}
         for (table,) in table_rows:
             # Table names come from sqlite_master of the snapshot itself.
-            cursor = connection.execute(f'SELECT * FROM "{table}"')  # noqa: S608
+            quoted_table = table.replace('"', '""')
+            cursor = connection.execute(f'SELECT * FROM "{quoted_table}"')  # noqa: S608
             columns = [str(column[0]) for column in cursor.description]
             rows: list[tuple[object, ...]] = cursor.fetchall()
             rows_by_table[table] = [dict(zip(columns, row, strict=True)) for row in rows]

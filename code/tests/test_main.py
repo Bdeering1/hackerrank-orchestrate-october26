@@ -157,6 +157,18 @@ def test_main_writes_valid_output_and_usage(run):
             _remaining_account_steps("account_1313", "evidence_02"),
             id="uncitable replica copy remains, phone linked by log trace",
         ),
+        pytest.param(
+            "case_16",
+            "COMPLETE",
+            _absent_account_steps("account_1414", "evidence_03"),
+            id="later snapshot omits earlier record",
+        ),
+        pytest.param(
+            "case_17",
+            "INCOMPLETE",
+            _remaining_account_steps("account_1515", "evidence_09"),
+            id="json replica row remains",
+        ),
     ],
 )
 def test_main_audits_account_records(run, case_id, expected_status, expected_steps):

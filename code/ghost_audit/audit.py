@@ -105,7 +105,7 @@ class Auditor:
             for key in sorted(self._linked_resources(subject, audit_at))
             if (assessment := self._assessment(key, audit_at)) is not None
         ]
-        # The output contract rejects COMPLETE and INCOMPLETE rows without steps.
+        # evaluation.validate rejects COMPLETE and INCOMPLETE rows without steps.
         if not assessments:
             return NOT_APPLICABLE, []
         is_complete = not any(assessment.has_gap for assessment in assessments)
