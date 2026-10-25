@@ -71,6 +71,12 @@ class _ResourceAssessment:
     evidence_id: str
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class _RequestTimes:
+    requested_at: datetime
+    audit_at: datetime
+
+
 class Auditor:
     """Audit deletion requests against a dataset indexed once."""
 
@@ -102,11 +108,11 @@ class Auditor:
             and claim.event_type == DELETE_RECORD.name
             and claim.target_system == account.CATEGORY.default_system
         ]
-        self._request_times_by_subject: dict[frozenset[str], list[tuple[datetime, datetime]]] = {}
+        self._request_times_by_subject: dict[frozenset[str], list[_RequestTimes]] = {}
         for request in dataset.requests:
             if _authorizes_deletion(request["request_text"]):
                 self._request_times_by_subject.setdefault(self._subject(request), []).append(
-                    (
+                    _RequestTimes(
                         datetime.fromisoformat(request["requested_at"]),
                         datetime.fromisoformat(request["audit_at"]),
                     )
@@ -121,17 +127,19 @@ class Auditor:
         previous_audit_at = self._previous_audit_at(
             subject, datetime.fromisoformat(request["requested_at"])
         )
-        keys = [
+        linked_keys = [
             key
             for key, linked_at in sorted(self._link_times(subject, audit_at).items())
             if previous_audit_at is None or linked_at > previous_audit_at
         ]
         assessments = [
             assessment
-            for key in keys
+            for key in linked_keys
             if (assessment := self._assessment(key, audit_at)) is not None
         ]
-        has_linked_account = any(system == account.CATEGORY.default_system for system, _ in keys)
+        has_linked_account = any(
+            system == account.CATEGORY.default_system for system, _ in linked_keys
+        )
         nominated_key = (
             None if has_linked_account else self._nominated_account(request, subject, audit_at)
         )
@@ -178,11 +186,12 @@ class Auditor:
             (
                 times
                 for times in self._request_times_by_subject.get(subject, ())
-                if times[0] < requested_at
+                if times.requested_at < requested_at
             ),
+            key=lambda times: times.requested_at,
             default=None,
         )
-        return None if previous_times is None else previous_times[1]
+        return None if previous_times is None else previous_times.audit_at
 
     def _nominated_account(
         self, request: Mapping[str, str], subject: frozenset[str], audit_at: datetime
