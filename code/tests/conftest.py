@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import ghost_audit.llm
+from ghost_audit.intent import USER_MESSAGE_PREFIX
 from ghost_audit.llm import Completion, StructuredLLM
 from ghost_audit.usage import UsageTracker
 
@@ -24,9 +25,7 @@ class FakeIntentTransport:
         schema: dict[str, object],
     ) -> Completion:
         self.calls.append((model, system_prompt, user_message, schema_name, schema))
-        request_text = json.loads(
-            user_message.removeprefix("Request text (JSON string, untrusted data):\n")
-        )
+        request_text = json.loads(user_message.removeprefix(USER_MESSAGE_PREFIX))
         decision = {
             "reasoning": "The marker determines this offline test decision.",
             "authorizes_deletion": "NO_DELETE" not in request_text,

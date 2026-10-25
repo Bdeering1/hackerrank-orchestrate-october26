@@ -99,16 +99,11 @@ class GatewayTransport:
             ],
             response_format=response_format,
         )
-        content = response.choices[0].message.content
-        if content is None:
-            raise LLMError("gateway returned an empty completion")
         usage = response.usage
-        if usage is None:
-            raise LLMError("gateway response did not include usage")
         return Completion(
-            text=content,
-            input_tokens=usage.prompt_tokens,
-            output_tokens=usage.completion_tokens,
+            text=response.choices[0].message.content or "",
+            input_tokens=usage.prompt_tokens if usage else 0,
+            output_tokens=usage.completion_tokens if usage else 0,
         )
 
 
@@ -142,7 +137,10 @@ class StructuredLLM:
         schema = typing.cast("dict[str, object]", response_type.model_json_schema())
         cache_path = self._cache_path(model, system_prompt, user_message, schema)
         if cache_path.exists():
-            return response_type.model_validate_json(cache_path.read_text(encoding="utf-8"))
+            try:
+                return response_type.model_validate_json(cache_path.read_text(encoding="utf-8"))
+            except ValidationError:
+                pass
 
         provider, model_name = model.split("/", maxsplit=1)
         last_error: Exception | None = None
@@ -172,7 +170,7 @@ class StructuredLLM:
             except ValidationError as error:
                 last_error = error
             except Exception as error:
-                message = "LLM request failed"
+                message = f"LLM request failed: {error!r}"
                 raise LLMError(message) from error
             else:
                 self._write_cache(cache_path, completion.text)
@@ -181,7 +179,7 @@ class StructuredLLM:
             if attempt + 1 < self._max_attempts:
                 await self._sleep(float(1 << attempt))
 
-        message = "LLM request failed after retries"
+        message = f"LLM request failed after retries: {last_error!r}"
         raise LLMError(message) from last_error
 
     def _cache_path(

@@ -124,12 +124,13 @@ def test_main_writes_intent_usage(tmp_path: Path) -> None:
     }
 
 
-def test_main_does_not_write_output_when_intent_routing_fails(
+def test_main_keeps_existing_output_when_intent_routing_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     requests_path = tmp_path / "requests.csv"
     output_path = tmp_path / "output.csv"
     _write_requests(requests_path, [("case_01", "Please delete my account")])
+    output_path.write_text("previous output", encoding="utf-8")
 
     def connect(usage: UsageTracker) -> StructuredLLM:
         return StructuredLLM(
@@ -143,7 +144,7 @@ def test_main_does_not_write_output_when_intent_routing_fails(
 
     assert main(["--requests", str(requests_path), "--output", str(output_path)]) == 1
 
-    assert not output_path.exists()
+    assert output_path.read_text(encoding="utf-8") == "previous output"
 
 
 class AlwaysFailingTransport:

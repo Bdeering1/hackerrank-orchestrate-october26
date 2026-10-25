@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 import httpx2 as httpx
 import openai
@@ -37,7 +38,7 @@ class ScriptedTransport:
         return response
 
 
-def test_parse_uses_disk_cache_and_cache_key_inputs(tmp_path) -> None:
+def test_parse_uses_disk_cache_and_cache_key_inputs(tmp_path: Path) -> None:
     transport = ScriptedTransport(
         [
             Completion('{"answer": true}', 1, 2),
@@ -49,7 +50,8 @@ def test_parse_uses_disk_cache_and_cache_key_inputs(tmp_path) -> None:
     llm = StructuredLLM(transport, usage, tmp_path)
 
     assert asyncio.run(llm.parse("test/one", "prompt", "message", Answer)).answer
-    assert asyncio.run(llm.parse("test/one", "prompt", "message", Answer)).answer
+    repeat_run_llm = StructuredLLM(transport, usage, tmp_path)
+    assert asyncio.run(repeat_run_llm.parse("test/one", "prompt", "message", Answer)).answer
     assert not asyncio.run(llm.parse("test/two", "prompt", "message", Answer)).answer
     assert asyncio.run(llm.parse("test/one", "other prompt", "message", Answer)).answer
 
@@ -63,7 +65,7 @@ def test_parse_uses_disk_cache_and_cache_key_inputs(tmp_path) -> None:
     )
 
 
-def test_parse_retries_transient_failures(tmp_path) -> None:
+def test_parse_retries_transient_failures(tmp_path: Path) -> None:
     transport = ScriptedTransport(
         [
             openai.APIConnectionError(request=httpx.Request("POST", "https://example.test")),
@@ -82,7 +84,7 @@ def test_parse_retries_transient_failures(tmp_path) -> None:
     assert delays == [1]
 
 
-def test_parse_retries_invalid_json_and_records_its_usage(tmp_path) -> None:
+def test_parse_retries_invalid_json_and_records_its_usage(tmp_path: Path) -> None:
     transport = ScriptedTransport(
         [Completion("invalid", 2, 3), Completion('{"answer": true}', 5, 7)]
     )
@@ -102,7 +104,7 @@ def test_parse_retries_invalid_json_and_records_its_usage(tmp_path) -> None:
     )
 
 
-def test_parse_does_not_retry_non_transient_errors(tmp_path) -> None:
+def test_parse_does_not_retry_non_transient_errors(tmp_path: Path) -> None:
     response = httpx.Response(400, request=httpx.Request("POST", "https://example.test"))
     transport = ScriptedTransport(
         [openai.BadRequestError("bad request", response=response, body=None)]
@@ -115,7 +117,7 @@ def test_parse_does_not_retry_non_transient_errors(tmp_path) -> None:
     assert transport.calls == 1
 
 
-def test_parse_raises_after_transient_attempts_are_exhausted(tmp_path) -> None:
+def test_parse_raises_after_transient_attempts_are_exhausted(tmp_path: Path) -> None:
     error = openai.APIConnectionError(request=httpx.Request("POST", "https://example.test"))
     transport = ScriptedTransport([error, error])
 
@@ -127,4 +129,15 @@ def test_parse_raises_after_transient_attempts_are_exhausted(tmp_path) -> None:
     with pytest.raises(LLMError):
         asyncio.run(llm.parse("test/one", "prompt", "message", Answer))
 
+    assert transport.calls == 2
+
+
+def test_parse_treats_invalid_cache_entry_as_miss(tmp_path: Path) -> None:
+    transport = ScriptedTransport([Completion('{"answer": true}', 1, 2)] * 2)
+    llm = StructuredLLM(transport, UsageTracker(), tmp_path)
+    asyncio.run(llm.parse("test/one", "prompt", "message", Answer))
+    (cache_path,) = tmp_path.glob("*.json")
+    cache_path.write_text("corrupt", encoding="utf-8")
+
+    assert asyncio.run(llm.parse("test/one", "prompt", "message", Answer)).answer
     assert transport.calls == 2
