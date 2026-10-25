@@ -10,27 +10,35 @@ from evaluation.runs import PromotionRefusedError, promote_run, record_run
 from evaluation.score import case_scores, render_markdown
 from evaluation.usage import format_usage_summary, usage_summary
 from evaluation.validate import csv_rows, validation_errors
+from ghost_audit.__main__ import DEFAULT_OUTPUT_PATH
 from ghost_audit.__main__ import main as agent_main
 
 DATASET_DIR = Path(__file__).resolve().parents[2] / "dataset"
 LABELS_PATH = DATASET_DIR / "sample_output.csv"
 REQUESTS_PATH = DATASET_DIR / "sample_deletion_requests.csv"
+FULL_REQUESTS_PATH = DATASET_DIR / "deletion_requests.csv"
 EVIDENCE_FILES_PATH = DATASET_DIR / "evidence_files.csv"
 SYSTEM_ACTIVITY_PATH = DATASET_DIR / "system_activity.csv"
 AUDIT_LOG_PATH = DATASET_DIR / "user_audit_log.csv"
 
 
 def main(argv: list[str]) -> int:
-    """Run, validate or promote sample predictions and render weighted scores."""
+    """Run, score or promote sample predictions, or validate a full-set output."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--predictions", type=Path)
-    promote_parser = parser.add_subparsers(dest="command").add_parser("promote")
+    subparsers = parser.add_subparsers(dest="command")
+    promote_parser = subparsers.add_parser("promote")
     promote_parser.add_argument("run_id")
+    validate_parser = subparsers.add_parser("validate")
+    validate_parser.add_argument("output_path", nargs="?", type=Path)
     arguments = _Arguments()
     parser.parse_args(argv, arguments)
 
     if arguments.command == "promote":
         return _promote(arguments.run_id)
+
+    if arguments.command == "validate":
+        return _validate_full_set(arguments.output_path or DEFAULT_OUTPUT_PATH)
 
     if arguments.predictions is not None:
         return _score_predictions(arguments.predictions)
@@ -56,11 +64,7 @@ def main(argv: list[str]) -> int:
 def _score_predictions(predictions_path: Path, usage_path: Path | None = None) -> int:
     """Validate predictions and render weighted sample scores."""
     audit_times = _times_from(REQUESTS_PATH, "audit_at")
-    errors = validation_errors(predictions_path, audit_times, _evidence_times())
-    if errors:
-        sys.stderr.write("validation failed:\n")
-        for error in errors:
-            sys.stderr.write(f"{error}\n")
+    if _report_validation_errors(predictions_path, audit_times):
         return 1
 
     scores_markdown = render_markdown(case_scores(predictions_path, LABELS_PATH))
@@ -71,6 +75,28 @@ def _score_predictions(predictions_path: Path, usage_path: Path | None = None) -
     sys.stdout.write(f"{format_usage_summary(summary)}\n")
     record_run(predictions_path, usage_path, LABELS_PATH, scores_markdown)
     return 0
+
+
+def _validate_full_set(output_path: Path) -> int:
+    """Validate an output file against the full request set without scoring."""
+    audit_times = _times_from(FULL_REQUESTS_PATH, "audit_at")
+    if _report_validation_errors(output_path, audit_times):
+        return 1
+
+    sys.stdout.write(f"{output_path}: {len(audit_times)} cases valid\n")
+    return 0
+
+
+def _report_validation_errors(predictions_path: Path, audit_times: dict[str, datetime]) -> bool:
+    """Write validation errors to stderr and return whether there were any."""
+    errors = validation_errors(predictions_path, audit_times, _evidence_times())
+    if not errors:
+        return False
+
+    sys.stderr.write("validation failed:\n")
+    for error in errors:
+        sys.stderr.write(f"{error}\n")
+    return True
 
 
 def _promote(run_id: str) -> int:
@@ -100,6 +126,7 @@ class _Arguments(argparse.Namespace):
     predictions: Path | None
     command: str | None
     run_id: str
+    output_path: Path | None
 
 
 if __name__ == "__main__":
