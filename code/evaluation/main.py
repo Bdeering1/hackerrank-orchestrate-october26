@@ -3,20 +3,24 @@ from __future__ import annotations
 import argparse
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
-from evaluation.score import status_match_counts
+from evaluation.score import case_scores, render_markdown
 from evaluation.usage import format_usage_summary, usage_summary
-from evaluation.validate import data_rows, validation_errors
+from evaluation.validate import csv_rows, validation_errors
 from ghost_audit.__main__ import main as agent_main
 
 DATASET_DIR = Path(__file__).resolve().parents[2] / "dataset"
 LABELS_PATH = DATASET_DIR / "sample_output.csv"
 REQUESTS_PATH = DATASET_DIR / "sample_deletion_requests.csv"
+EVIDENCE_FILES_PATH = DATASET_DIR / "evidence_files.csv"
+SYSTEM_ACTIVITY_PATH = DATASET_DIR / "system_activity.csv"
+AUDIT_LOG_PATH = DATASET_DIR / "user_audit_log.csv"
 
 
 def main(argv: list[str]) -> int:
-    """Run or validate sample predictions and report status accuracy."""
+    """Run or validate sample predictions and render weighted scores."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--predictions", type=Path)
     arguments = _Arguments()
@@ -44,26 +48,33 @@ def main(argv: list[str]) -> int:
 
 
 def _score_predictions(predictions_path: Path, usage_path: Path | None = None) -> int:
-    """Validate predictions and report sample status accuracy."""
-    requested_case_ids = _requested_case_ids()
-    errors = validation_errors(predictions_path, requested_case_ids)
+    """Validate predictions and render weighted sample scores."""
+    audit_times = _times_from(REQUESTS_PATH, "audit_at")
+    errors = validation_errors(predictions_path, audit_times, _evidence_times())
     if errors:
         sys.stderr.write("validation failed:\n")
         for error in errors:
             sys.stderr.write(f"{error}\n")
         return 1
 
-    match_count, case_count = status_match_counts(predictions_path, LABELS_PATH)
-    percentage = match_count / case_count * 100
-    sys.stdout.write(f"status accuracy: {match_count}/{case_count} ({percentage:.1f}%)\n")
+    sys.stdout.write(render_markdown(case_scores(predictions_path, LABELS_PATH)))
     if usage_path is not None:
-        summary = usage_summary(usage_path, len(requested_case_ids))
+        summary = usage_summary(usage_path, len(audit_times))
         sys.stdout.write(f"{format_usage_summary(summary)}\n")
     return 0
 
 
-def _requested_case_ids() -> list[str]:
-    return [row[0] for row in data_rows(REQUESTS_PATH)]
+def _evidence_times() -> dict[str, datetime]:
+    evidence_times = _times_from(EVIDENCE_FILES_PATH, "captured_at")
+    evidence_times.update(_times_from(SYSTEM_ACTIVITY_PATH, "event_time"))
+    evidence_times.update(_times_from(AUDIT_LOG_PATH, "event_time"))
+    return evidence_times
+
+
+def _times_from(path: Path, time_column: str) -> dict[str, datetime]:
+    header, *rows = csv_rows(path)
+    time_index = header.index(time_column)
+    return {row[0]: datetime.fromisoformat(row[time_index]) for row in rows}
 
 
 class _Arguments(argparse.Namespace):
