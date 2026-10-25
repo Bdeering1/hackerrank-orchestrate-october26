@@ -7,7 +7,7 @@ import openai
 import pytest
 from pydantic import BaseModel
 
-from ghost_audit.llm import Completion, LLMError, StructuredLLM
+from ghost_audit.llm import CONCURRENCY_LIMIT, Completion, LLMError, StructuredLLM
 from ghost_audit.usage import UsageTracker
 from tests.fakes import REQUEST, FakeTransport, scripted
 
@@ -129,3 +129,17 @@ def test_parse_treats_invalid_cache_entry_as_miss(tmp_path: Path) -> None:
 
     assert asyncio.run(llm.parse("test/one", "prompt", "message", Answer)).answer
     assert len(transport.requests) == 2
+
+
+def test_parse_limits_concurrency_across_event_loops(tmp_path: Path) -> None:
+    transport = FakeTransport(lambda _request: Completion('{"answer": true}', 1, 2))
+    llm = StructuredLLM(transport, UsageTracker(), tmp_path)
+
+    async def parse_concurrently(run: int) -> None:
+        messages = [f"run {run} message {index}" for index in range(CONCURRENCY_LIMIT + 1)]
+        await asyncio.gather(*(llm.parse("test/one", "prompt", m, Answer) for m in messages))
+
+    asyncio.run(parse_concurrently(1))
+    asyncio.run(parse_concurrently(2))
+
+    assert len(transport.requests) == 2 * (CONCURRENCY_LIMIT + 1)

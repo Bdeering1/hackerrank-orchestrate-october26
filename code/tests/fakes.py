@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import Callable, Iterable
 
@@ -20,6 +21,7 @@ class FakeTransport:
 
     async def complete(self, request: StructuredRequest) -> Completion:
         self.requests.append(request)
+        await asyncio.sleep(0)
         return self._respond(request)
 
 

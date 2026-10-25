@@ -10,6 +10,7 @@ import pathlib
 import random
 import typing
 import uuid
+import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -128,7 +129,9 @@ class StructuredLLM:
         self._transport = transport
         self._usage_tracker = usage_tracker
         self._cache_dir = cache_dir
-        self._semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
+        self._semaphores: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop, asyncio.Semaphore
+        ] = weakref.WeakKeyDictionary()
         self._max_attempts = max_attempts
         self._sleep = sleep
 
@@ -158,7 +161,7 @@ class StructuredLLM:
         last_error: Exception | None = None
         for attempt in range(self._max_attempts):
             try:
-                async with self._semaphore:
+                async with self._loop_semaphore():
                     completion = await self._transport.complete(request)
                 self._usage_tracker.record(
                     provider,
@@ -187,6 +190,12 @@ class StructuredLLM:
 
         message = f"LLM request failed after retries: {last_error!r}"
         raise LLMError(message) from last_error
+
+    def _loop_semaphore(self) -> asyncio.Semaphore:
+        """Return this event loop's semaphore, since an asyncio semaphore is bound to one loop."""
+        return self._semaphores.setdefault(
+            asyncio.get_running_loop(), asyncio.Semaphore(CONCURRENCY_LIMIT)
+        )
 
     def _cache_path(self, request: StructuredRequest) -> pathlib.Path:
         cache_input = json.dumps(
