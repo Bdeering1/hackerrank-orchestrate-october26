@@ -1,0 +1,80 @@
+{
+  "exported_at": "2026-09-04T12:00:00Z",
+  "source": "records_assurance_service",
+  "snapshots": [
+    {
+      "captured_at": "2026-09-02T12:00:00Z",
+      "data_store": "search_service",
+      "collection": "customer_search_documents",
+      "records": [
+        {
+          "resource_id": "search_201",
+          "index_name": "customer_directory_v3",
+          "document": {
+            "display_name": "Selam Tesfaye",
+            "email": "selam.tesfaye@proton.me",
+            "customer_reference": "user_42"
+          }
+        },
+        {
+          "resource_id": "search_501",
+          "index_name": "customer_directory_v3",
+          "document": {
+            "display_name": "Olu Bankole",
+            "email": "olu.bankole@yahoo.com",
+            "customer_reference": "user_45"
+          }
+        }
+      ]
+    },
+    {
+      "captured_at": "2026-09-03T12:00:00Z",
+      "data_store": "search_service",
+      "collection": "customer_search_documents",
+      "records": [
+        {
+          "resource_id": "search_201",
+          "index_name": "customer_directory_v3",
+          "document": {
+            "display_name": "Selam Tesfaye",
+            "email": "selam.tesfaye@proton.me",
+            "customer_reference": "user_42"
+          }
+        }
+      ]
+    },
+    {
+      "captured_at": "2026-09-03T12:00:00Z",
+      "data_store": "export_service",
+      "collection": "customer_export_jobs",
+      "records": [
+        {
+          "resource_id": "export_301",
+          "owner_email": "henrik.aalto@fastmail.com",
+          "file_name": "customer_export_301.zip",
+          "created_at": "2026-08-20T07:00:00Z",
+          "expires_at": "2026-09-19T07:00:00Z",
+          "download_available": false,
+          "included_sections": [
+            "profile",
+            "orders"
+          ]
+        }
+      ]
+    },
+    {
+      "captured_at": "2026-09-03T12:00:00Z",
+      "data_store": "support_platform",
+      "collection": "ticket_attachments",
+      "records": [
+        {
+          "resource_id": "support_401",
+          "ticket_id": "CS-4401",
+          "file_name": "delivery_confirmation_7.pdf",
+          "uploaded_by": "priya.venkat@gmail.com",
+          "storage_class": "ticket_attachment"
+        }
+      ]
+    }
+  ]
+}
