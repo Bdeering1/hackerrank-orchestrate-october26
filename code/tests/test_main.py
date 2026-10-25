@@ -1,5 +1,6 @@
 import csv
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -8,6 +9,8 @@ import pytest
 import ghost_audit.llm
 from evaluation.validate import data_rows, validation_errors
 from ghost_audit.__main__ import main
+from ghost_audit.extraction import ExtractionTurn
+from ghost_audit.llm import Completion, StructuredRequest
 from tests.fakes import (
     NO_DELETE_MARKER,
     FakeTransport,
@@ -22,6 +25,7 @@ ACCOUNT_SYSTEM = "account_service"
 SUPPORT_SYSTEM = "support_platform"
 ANALYTICS_SYSTEM = "analytics_platform"
 SEARCH_SYSTEM = "search_service"
+SCREENSHOT_EVIDENCE_ID = "evidence_99"
 
 
 def _step(
@@ -533,6 +537,74 @@ def test_main_keeps_existing_output_when_intent_routing_fails(
     assert main(_main_arguments(REQUESTS_PATH, output_path)) == 1
 
     assert output_path.read_text(encoding="utf-8") == "previous output"
+
+
+def test_main_audits_records_extracted_from_screenshots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dataset_dir = _dataset_with_screenshot(tmp_path, "2026-09-04T11:00:00Z")
+    record = {
+        "resource_id": "support_9538",
+        "category": "SUPPORT_MESSAGE",
+        "state": "PRESENT",
+        "identifiers": ["user_01", "leila.haddad@yahoo.com"],
+        "observed_at": None,
+    }
+    submission = {"reasoning": "Scripted.", "tool": "submit", "page": None, "records": [record]}
+
+    def respond(request: StructuredRequest) -> Completion:
+        if request.schema_name == ExtractionTurn.__name__:
+            return Completion(json.dumps(submission), input_tokens=11, output_tokens=7)
+        return decide_intent(request)
+
+    monkeypatch.setattr(
+        ghost_audit.llm, "connect", fake_connect(FakeTransport(respond), tmp_path / "llm-cache")
+    )
+    output_path = tmp_path / "output.csv"
+
+    assert main(["--dataset", str(dataset_dir), "--output", str(output_path)]) == 0
+
+    output_rows = {row[0]: (row[1], json.loads(row[2])) for row in data_rows(output_path)}
+    status, steps = output_rows["case_01"]
+    assert status == "INCOMPLETE"
+    assert {
+        (step["system_id"], step["resource_id"], step["evidence_id"])
+        for step in steps
+        if step["phase"] == "FINDING"
+    } >= {(SUPPORT_SYSTEM, "support_9538", SCREENSHOT_EVIDENCE_ID)}
+
+
+def test_main_fails_when_evidence_extraction_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dataset_dir = _dataset_with_screenshot(tmp_path, "2026-09-26T11:00:00Z")
+
+    def respond(request: StructuredRequest) -> Completion:
+        if request.schema_name == ExtractionTurn.__name__:
+            return fail_to_connect(request)
+        return decide_intent(request)
+
+    connect = fake_connect(FakeTransport(respond), tmp_path / "llm-cache", max_attempts=1)
+    monkeypatch.setattr(ghost_audit.llm, "connect", connect)
+    output_path = tmp_path / "output.csv"
+
+    assert main(["--dataset", str(dataset_dir), "--output", str(output_path)]) == 1
+
+    assert not output_path.exists()
+
+
+def _dataset_with_screenshot(tmp_path: Path, captured_at: str) -> Path:
+    dataset_dir = tmp_path / "dataset"
+    shutil.copytree(DATASET_DIR, dataset_dir)
+    screenshot_path = dataset_dir / "evidence" / "images" / "account_admin_console.png"
+    screenshot_path.parent.mkdir()
+    screenshot_path.write_bytes(b"\x89PNG")
+    with (dataset_dir / "evidence_files.csv").open("a", encoding="utf-8") as manifest_file:
+        manifest_file.write(
+            f"{SCREENSHOT_EVIDENCE_ID},evidence/images/account_admin_console.png,"
+            f"account_admin_portal,{captured_at}\n"
+        )
+    return dataset_dir
 
 
 def _main_arguments(requests_path: Path, output_path: Path) -> list[str]:

@@ -6,6 +6,7 @@ from pathlib import Path
 import httpx2 as httpx
 import openai
 
+from ghost_audit.extraction import SUBMIT_TOOL, ExtractionTurn
 from ghost_audit.intent import USER_MESSAGE_PREFIX
 from ghost_audit.llm import Completion, StructuredLLM, StructuredRequest
 from ghost_audit.usage import UsageTracker
@@ -35,6 +36,14 @@ def decide_intent(request: StructuredRequest) -> Completion:
         "authorizes_deletion": NO_DELETE_MARKER not in request_text,
     }
     return Completion(text=json.dumps(decision), input_tokens=3, output_tokens=5)
+
+
+def respond_offline(request: StructuredRequest) -> Completion:
+    """Decide intents as `decide_intent` does and submit no records for any extracted file."""
+    if request.schema_name != ExtractionTurn.__name__:
+        return decide_intent(request)
+    submission = {"reasoning": "Offline.", "tool": SUBMIT_TOOL, "page": None, "records": []}
+    return Completion(text=json.dumps(submission), input_tokens=7, output_tokens=5)
 
 
 def scripted(
