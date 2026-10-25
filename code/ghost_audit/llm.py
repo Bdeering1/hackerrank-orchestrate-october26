@@ -11,7 +11,7 @@ import random
 import typing
 import uuid
 import weakref
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from dataclasses import dataclass
 
 import openai
@@ -241,6 +241,17 @@ def _retry_delay(attempt: int, error: Exception) -> float:
         if retry_after.isdecimal():
             delay = max(delay, float(retry_after))
     return delay
+
+
+async def gathered[T](coroutines: Iterable[Coroutine[object, object, T]]) -> list[T]:
+    """Run coroutines concurrently, raising the first LLMError unwrapped from its group."""
+    try:
+        async with asyncio.TaskGroup() as task_group:
+            tasks = [task_group.create_task(coroutine) for coroutine in coroutines]
+    except* LLMError as errors:
+        error = errors.exceptions[0]
+        raise error from error.__cause__
+    return [task.result() for task in tasks]
 
 
 def connect(usage_tracker: UsageTracker) -> StructuredLLM:

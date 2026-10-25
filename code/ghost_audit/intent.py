@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
-from ghost_audit.llm import LLMError, StructuredLLM
+from ghost_audit.llm import StructuredLLM, gathered
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -29,16 +28,14 @@ class IntentDecision(BaseModel):
 
 async def classify_intents(llm: StructuredLLM, request_texts: Iterable[str]) -> dict[str, bool]:
     """Classify each distinct request text concurrently."""
-    distinct_texts = dict.fromkeys(request_texts)
-    tasks: dict[str, asyncio.Task[IntentDecision]] = {}
-    try:
-        async with asyncio.TaskGroup() as task_group:
-            for request_text in distinct_texts:
-                tasks[request_text] = task_group.create_task(_classify_intent(llm, request_text))
-    except* LLMError as errors:
-        error = errors.exceptions[0]
-        raise error from error.__cause__
-    return {request_text: task.result().authorizes_deletion for request_text, task in tasks.items()}
+    distinct_texts = list(dict.fromkeys(request_texts))
+    decisions = await gathered(
+        _classify_intent(llm, request_text) for request_text in distinct_texts
+    )
+    return {
+        request_text: decision.authorizes_deletion
+        for request_text, decision in zip(distinct_texts, decisions, strict=True)
+    }
 
 
 async def _classify_intent(llm: StructuredLLM, request_text: str) -> IntentDecision:
