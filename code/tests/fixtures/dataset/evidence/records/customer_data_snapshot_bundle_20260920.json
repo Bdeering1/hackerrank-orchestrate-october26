@@ -16,6 +16,30 @@
           "account_status": "ACTIVE"
         }
       ]
+    },
+    {
+      "captured_at": "2026-09-15T12:00:00Z",
+      "data_store": "integration_service",
+      "collection": "connector_configurations",
+      "records": [
+        {
+          "resource_id": "data_flow_json",
+          "subject_reference": "unlinked@example.test",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "captured_at": "2026-09-15T12:00:00Z",
+      "data_store": "backup_service",
+      "collection": "backup_catalog",
+      "records": [
+        {
+          "resource_id": "backup_json",
+          "subject_reference": "unlinked@example.test",
+          "restore_allowed": false
+        }
+      ]
     }
   ]
 }

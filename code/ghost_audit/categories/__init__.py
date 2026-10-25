@@ -22,6 +22,11 @@ class Category:
     existing_state: Callable[[Mapping[str, object]], str]
 
 
+def is_truthy(value: object) -> bool:
+    """Return whether an evidence field represents an enabled setting."""
+    return str(value).lower() in {"1", "true"}
+
+
 def discovered_categories() -> tuple[Category, ...]:
     """Return the CATEGORY declared by every module in this package."""
     categories: list[Category] = []

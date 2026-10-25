@@ -19,15 +19,23 @@ from tests.fakes import (
 DATASET_DIR = Path(__file__).resolve().parent / "fixtures" / "dataset"
 REQUESTS_PATH = DATASET_DIR / "deletion_requests.csv"
 ACCOUNT_SYSTEM = "account_service"
+BACKUP_SYSTEM = "backup_service"
+DATA_FLOW_SYSTEM = "integration_service"
 
 
 def _step(
-    step_no: int, phase: str, resource_id: str, operation: str, state: str, evidence_id: str
+    step_no: int,
+    phase: str,
+    resource_id: str,
+    operation: str,
+    state: str,
+    evidence_id: str,
+    system_id: str = ACCOUNT_SYSTEM,
 ) -> dict[str, object]:
     return {
         "step_no": step_no,
         "phase": phase,
-        "system_id": ACCOUNT_SYSTEM,
+        "system_id": system_id,
         "resource_id": resource_id,
         "operation": operation,
         "state": state,
@@ -96,14 +104,93 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_01",
             "INCOMPLETE",
-            _remaining_account_steps("account_101", "evidence_01"),
-            id="replica copy remains",
+            [
+                _step(
+                    1,
+                    "FINDING",
+                    "account_101",
+                    "REPORT_REMAINING_RECORD",
+                    "PRESENT",
+                    "evidence_01",
+                ),
+                _step(
+                    2,
+                    "FINDING",
+                    "data_flow_101",
+                    "REPORT_ACTIVE_DATA_FLOW",
+                    "ACTIVE",
+                    "evidence_06",
+                    DATA_FLOW_SYSTEM,
+                ),
+                _step(
+                    3,
+                    "REMEDIATION",
+                    "data_flow_101",
+                    "DISABLE_DATA_FLOW",
+                    "DISABLED",
+                    "",
+                    DATA_FLOW_SYSTEM,
+                ),
+                _step(
+                    4,
+                    "REMEDIATION",
+                    "account_101",
+                    "DELETE_RECORD",
+                    "ABSENT",
+                    "",
+                ),
+                _step(
+                    5,
+                    "VERIFICATION",
+                    "account_101",
+                    "VERIFY_RECORD_ABSENT",
+                    "ABSENT",
+                    "",
+                ),
+                _step(
+                    6,
+                    "VERIFICATION",
+                    "data_flow_101",
+                    "VERIFY_DATA_FLOW_DISABLED",
+                    "DISABLED",
+                    "",
+                    DATA_FLOW_SYSTEM,
+                ),
+            ],
+            id="enabled connector remains",
         ),
         pytest.param(
             "case_02",
             "COMPLETE",
-            _absent_account_steps("account_202", "evidence_02"),
-            id="historical email linked by log trace",
+            [
+                _step(
+                    1,
+                    "VERIFICATION",
+                    "account_202",
+                    "VERIFY_RECORD_ABSENT",
+                    "ABSENT",
+                    "evidence_02",
+                ),
+                _step(
+                    2,
+                    "VERIFICATION",
+                    "data_flow_202",
+                    "VERIFY_DATA_FLOW_DISABLED",
+                    "DISABLED",
+                    "evidence_06",
+                    DATA_FLOW_SYSTEM,
+                ),
+                _step(
+                    3,
+                    "VERIFICATION",
+                    "backup_202",
+                    "VERIFY_RESTORE_BLOCKED",
+                    "BLOCKED",
+                    "evidence_06",
+                    BACKUP_SYSTEM,
+                ),
+            ],
+            id="historical identity has disabled flow and blocked backup",
         ),
         pytest.param(
             "case_03",
@@ -112,10 +199,44 @@ def test_main_writes_valid_output_and_usage(run):
             id="snapshot after audit_at ignored",
         ),
         pytest.param(
+            "case_21",
+            "INCOMPLETE",
+            [
+                _step(
+                    1,
+                    "FINDING",
+                    "backup_210",
+                    "REPORT_RESTORE_RISK",
+                    "ACTIVE",
+                    "evidence_06",
+                    BACKUP_SYSTEM,
+                ),
+                _step(
+                    2,
+                    "REMEDIATION",
+                    "backup_210",
+                    "BLOCK_RESTORE",
+                    "BLOCKED",
+                    "",
+                    BACKUP_SYSTEM,
+                ),
+                _step(
+                    3,
+                    "VERIFICATION",
+                    "backup_210",
+                    "VERIFY_RESTORE_BLOCKED",
+                    "BLOCKED",
+                    "",
+                    BACKUP_SYSTEM,
+                ),
+            ],
+            id="restorable backup remains",
+        ),
+        pytest.param(
             "case_04",
             "INCOMPLETE",
             _remaining_account_steps("account_303", "evidence_03"),
-            id="snapshot before audit_at applies",
+            id="re-observed present beats earlier absence",
         ),
         pytest.param(
             "case_05", "NOT_APPLICABLE", [], id="no linked account, catalog link after audit_at"

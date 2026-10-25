@@ -7,3 +7,5 @@
 2026-09-03T07:59:30Z level=INFO service=account_service trace_id=rb-075930-003 event=profile_lookup_completed resource_id=account_1313 rows=0 http_status=404
 2026-09-03T07:59:40Z level=DEBUG service=account_service trace_id=rb-075940-004 event=profile_lookup_started resource_id=account_1819 lookup_key=amara.okafor@zoho.com
 2026-09-03T07:59:40Z level=INFO service=account_service trace_id=rb-075940-004 event=profile_lookup_completed resource_id=account_1819 rows=0 http_status=404
+2026-09-03T08:00:00Z level=INFO service=integration_service event=connector_config_read_completed resource_id=data_flow_log enabled=true
+2026-09-03T08:00:00Z level=INFO service=backup_service event=restore_authorization_completed resource_id=backup_log decision=deny

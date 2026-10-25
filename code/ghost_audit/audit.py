@@ -5,12 +5,18 @@ import typing
 from datetime import datetime
 
 from ghost_audit import identity
-from ghost_audit.model import ABSENT, Step
+from ghost_audit.model import ABSENT, BLOCKED, DISABLED, Step
 from ghost_audit.output_format import (
+    BLOCK_RESTORE,
     DELETE_RECORD,
+    DISABLE_DATA_FLOW,
     OPERATION_ORDER,
+    REPORT_ACTIVE_DATA_FLOW,
     REPORT_REMAINING_RECORD,
+    REPORT_RESTORE_RISK,
+    VERIFY_DATA_FLOW_DISABLED,
     VERIFY_RECORD_ABSENT,
+    VERIFY_RESTORE_BLOCKED,
     Operation,
 )
 
@@ -40,6 +46,21 @@ class PlanRule:
 
 PLAN_RULES = {
     "DELETE": PlanRule(ABSENT, REPORT_REMAINING_RECORD, DELETE_RECORD, VERIFY_RECORD_ABSENT),
+}
+
+CATEGORY_PLAN_RULES = {
+    "DATA_FLOW": PlanRule(
+        DISABLED,
+        REPORT_ACTIVE_DATA_FLOW,
+        DISABLE_DATA_FLOW,
+        VERIFY_DATA_FLOW_DISABLED,
+    ),
+    "BACKUP_ARCHIVE": PlanRule(
+        BLOCKED,
+        REPORT_RESTORE_RISK,
+        BLOCK_RESTORE,
+        VERIFY_RESTORE_BLOCKED,
+    ),
 }
 
 
@@ -179,6 +200,9 @@ class Auditor:
             )
             for observation in observations
         ]
+        category_rule = CATEGORY_PLAN_RULES.get(category)
+        if category_rule is not None:
+            return category_rule, proofs
         proofs.extend(
             _Proof(
                 coverage.copy,
