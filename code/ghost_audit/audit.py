@@ -5,19 +5,25 @@ import typing
 from datetime import datetime, timedelta
 
 from ghost_audit import identity
-from ghost_audit.categories import account
-from ghost_audit.model import ABSENT, ANONYMIZED, PRESENT, REDACTED, Step
+from ghost_audit.categories import account, backup, data_flow
+from ghost_audit.model import ABSENT, ANONYMIZED, BLOCKED, DISABLED, PRESENT, REDACTED, Step
 from ghost_audit.output_format import (
     ANONYMIZE_RECORD,
+    BLOCK_RESTORE,
     DELETE_RECORD,
+    DISABLE_DATA_FLOW,
     OPERATION_ORDER,
     REDACT_RECORD,
+    REPORT_ACTIVE_DATA_FLOW,
     REPORT_EXPOSED_PII,
     REPORT_REMAINING_RECORD,
+    REPORT_RESTORE_RISK,
+    VERIFY_DATA_FLOW_DISABLED,
     VERIFY_RECORD_ABSENT,
     VERIFY_RECORD_ANONYMIZED,
     VERIFY_RECORD_PRESENT,
     VERIFY_RECORD_REDACTED,
+    VERIFY_RESTORE_BLOCKED,
     Operation,
 )
 
@@ -48,7 +54,7 @@ type ResourceKey = tuple[str, str]
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class PlanRule:
-    """The end state a rule action requires and the steps that reach and check it."""
+    """The end state a rule action or category requires and the steps that reach and check it."""
 
     end_state: str
     finding: Operation | None
@@ -63,6 +69,20 @@ PLAN_RULES = {
         ANONYMIZED, REPORT_EXPOSED_PII, ANONYMIZE_RECORD, VERIFY_RECORD_ANONYMIZED
     ),
     RETAIN_ACTION: PlanRule(PRESENT, None, None, VERIFY_RECORD_PRESENT),
+}
+CATEGORY_PLAN_RULES = {
+    data_flow.CATEGORY.rule_category: PlanRule(
+        DISABLED,
+        REPORT_ACTIVE_DATA_FLOW,
+        DISABLE_DATA_FLOW,
+        VERIFY_DATA_FLOW_DISABLED,
+    ),
+    backup.CATEGORY.rule_category: PlanRule(
+        BLOCKED,
+        REPORT_RESTORE_RISK,
+        BLOCK_RESTORE,
+        VERIFY_RESTORE_BLOCKED,
+    ),
 }
 
 
@@ -283,11 +303,6 @@ class Auditor:
         if category is None:
             return None
         system, resource_id = key
-        action = self._dataset.required_actions[category]
-        if not any(observation.is_condition_met for observation in observations):
-            action = DELETE_ACTION
-        if action == RETAIN_ACTION and _is_retention_expired(observations, at):
-            action = DELETE_ACTION
         proofs = [
             _Proof(
                 observation.copy,
@@ -298,6 +313,15 @@ class Auditor:
             )
             for observation in observations
         ]
+        # Snapshots list only some connectors and backups, so omission proves nothing.
+        category_rule = CATEGORY_PLAN_RULES.get(category)
+        if category_rule is not None:
+            return category_rule, proofs
+        action = self._dataset.required_actions[category]
+        if not any(observation.is_condition_met for observation in observations):
+            action = DELETE_ACTION
+        if action == RETAIN_ACTION and _is_retention_expired(observations, at):
+            action = DELETE_ACTION
         if action == DELETE_ACTION:
             coverages = self._coverages_by_scope.get((system, category), [])
             proofs.extend(
