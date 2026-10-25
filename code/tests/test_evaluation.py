@@ -146,6 +146,14 @@ def _with_steps_for_not_applicable(rows: CsvRows) -> CsvRows:
     return rows
 
 
+def _with_complete_without_steps(rows: CsvRows) -> CsvRows:
+    return _set_steps(rows, FIRST_CASE_ID, [])
+
+
+def _with_incomplete_without_steps(rows: CsvRows) -> CsvRows:
+    return _set_steps(rows, INCOMPLETE_CASE_ID, [])
+
+
 def _with_complete_finding(rows: CsvRows) -> CsvRows:
     return _update_step(
         rows,
@@ -205,6 +213,16 @@ def _with_late_evidence(rows: CsvRows) -> CsvRows:
         pytest.param(_with_out_of_order_steps, "steps are not in canonical order", id="step-order"),
         pytest.param(
             _with_steps_for_not_applicable, "NOT_APPLICABLE must have", id="not-applicable"
+        ),
+        pytest.param(
+            _with_complete_without_steps,
+            "COMPLETE must have at least one step",
+            id="complete-empty",
+        ),
+        pytest.param(
+            _with_incomplete_without_steps,
+            "INCOMPLETE must have at least one step",
+            id="incomplete-empty",
         ),
         pytest.param(
             _with_complete_finding, "COMPLETE steps must be VERIFICATION", id="complete-phase"

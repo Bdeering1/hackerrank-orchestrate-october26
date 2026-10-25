@@ -264,6 +264,8 @@ def _status_errors(
         if steps:
             return [_row_error(line_number, case_id, "NOT_APPLICABLE must have steps_json []")]
         return []
+    if not steps:
+        return [_row_error(line_number, case_id, f"{deletion_status} must have at least one step")]
 
     errors: list[str] = []
     for step_position, step, _ in valid_steps:
