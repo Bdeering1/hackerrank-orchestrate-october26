@@ -14,10 +14,18 @@ uv run python -m evaluation.main [--holdout] --predictions <output.csv>
 
 ## Holdout rule
 
-`holdout.txt` lists the holdout cases: `case_04`, `case_12`, `case_30`, `case_902` and
+`holdout.txt` lists the holdout cases: `case_02`, `case_12`, `case_30`, `case_902` and
 `case_905`. They are left out of default runs and promotion, and they must never be used as
 prompt examples or few-shot material. `tests/test_cases.py` fails if a holdout request text
 appears in any file under `ghost_audit/`.
+
+`case_02` replaced `case_04` on 2026-10-25. The targeted analytics nomination rule was found
+by diagnosing `case_04`, the only case in the dataset it affects, so `case_04` no longer
+measures unseen behaviour and now runs in the default suite. `case_02` is the only `COMPLETE`
+sample that no change was diagnosed from and no default custom case was derived from. Its
+variant `case_902` was already held out, so subject user_02 is now entirely in the holdout. Like
+every sample, `case_02` had scored in earlier default runs, so it is the least-exposed choice,
+not an unseen one.
 
 ## Cases
 
