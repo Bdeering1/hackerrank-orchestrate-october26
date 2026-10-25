@@ -216,13 +216,13 @@ def test_main_writes_valid_output_and_usage(run):
             "case_27",
             "COMPLETE",
             _absent_account_steps("account_2727", "evidence_06"),
-            id="nomination window edges",
+            id="nomination window earliest edge",
         ),
         pytest.param(
             "case_28",
             "COMPLETE",
             _absent_account_steps("account_2828", "evidence_06"),
-            id="targeted nomination window edges",
+            id="targeted nomination window earliest edge",
         ),
         pytest.param(
             "case_29",
@@ -235,6 +235,24 @@ def test_main_writes_valid_output_and_usage(run):
             "COMPLETE",
             _absent_account_steps("account_3030", "evidence_06"),
             id="other activity never nominates",
+        ),
+        pytest.param(
+            "case_32",
+            "COMPLETE",
+            _absent_account_steps("account_3232", "evidence_06"),
+            id="links after audit_at never rule out a nominee",
+        ),
+        pytest.param(
+            "case_33",
+            "COMPLETE",
+            _absent_account_steps("account_3333", "evidence_06"),
+            id="nomination window latest edge",
+        ),
+        pytest.param(
+            "case_34",
+            "COMPLETE",
+            _absent_account_steps("account_3434", "evidence_06"),
+            id="targeted nomination window latest edge",
         ),
     ],
 )

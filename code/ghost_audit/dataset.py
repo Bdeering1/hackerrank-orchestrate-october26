@@ -12,7 +12,8 @@ from ghost_audit.model import Claim
 if typing.TYPE_CHECKING:
     from pathlib import Path
 
-REQUEST_FILE_NAMES = ("deletion_requests.csv", "sample_deletion_requests.csv")
+DELETION_REQUESTS_FILE_NAME = "deletion_requests.csv"
+REQUEST_FILE_NAMES = (DELETION_REQUESTS_FILE_NAME, "sample_deletion_requests.csv")
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

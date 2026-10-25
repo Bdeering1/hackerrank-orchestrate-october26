@@ -12,15 +12,19 @@ activity_10,2026-09-07T13:10:00Z,DELETE_RECORD,deletion_worker,account_service,a
 activity_11,2026-09-07T15:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_2626,SUCCESS,Deletion worker submitted primary profile account_2626 to account_service.
 activity_12,2026-09-07T16:41:00Z,DELETE_RECORD,deletion_worker,account_service,account_2728,SUCCESS,Deletion worker submitted primary profile account_2728 to account_service.
 activity_13,2026-09-07T16:42:00Z,DELETE_RECORD,deletion_worker,account_service,account_2727,SUCCESS,Deletion worker submitted primary profile account_2727 to account_service.
-activity_14,2026-09-07T17:18:00Z,DELETE_RECORD,deletion_worker,account_service,account_2727,SUCCESS,Deletion worker submitted primary profile account_2727 to account_service.
-activity_15,2026-09-07T17:19:00Z,DELETE_RECORD,deletion_worker,account_service,account_2728,SUCCESS,Deletion worker submitted primary profile account_2728 to account_service.
+activity_14,2026-09-08T17:18:00Z,DELETE_RECORD,deletion_worker,account_service,account_3333,SUCCESS,Deletion worker submitted primary profile account_3333 to account_service.
+activity_15,2026-09-08T17:19:00Z,DELETE_RECORD,deletion_worker,account_service,account_3334,SUCCESS,Deletion worker submitted primary profile account_3334 to account_service.
 activity_16,2026-09-07T19:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_2829,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2829.
 activity_17,2026-09-07T19:44:00Z,DELETE_RECORD,deletion_worker,account_service,account_2829,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2829.
 activity_18,2026-09-07T19:45:00Z,DELETE_RECORD,deletion_worker,account_service,account_2828,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2828.
-activity_19,2026-09-07T20:15:00Z,DELETE_RECORD,deletion_worker,account_service,account_2828,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2828.
-activity_20,2026-09-07T20:16:00Z,DELETE_RECORD,deletion_worker,account_service,account_2829,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2829.
+activity_19,2026-09-08T20:15:00Z,DELETE_RECORD,deletion_worker,account_service,account_3434,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_3434.
+activity_20,2026-09-08T20:16:00Z,DELETE_RECORD,deletion_worker,account_service,account_3435,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_3435.
 activity_21,2026-09-07T21:50:00Z,DELETE_RECORD,deletion_worker,account_service,account_2929,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2929.
 activity_22,2026-09-07T22:10:00Z,DELETE_RECORD,deletion_worker,account_service,account_2930,SUCCESS,Deletion worker reported the requested operation as completed. Target resource: account_2930.
 activity_23,2026-09-08T07:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_3030,SUCCESS,Deletion worker submitted primary profile account_3030 to account_service.
 activity_24,2026-09-08T07:05:00Z,DELETE_RECORD,profile_service,account_service,account_3031,SUCCESS,Profile service removed profile account_3031 after a duplicate merge.
 activity_25,2026-09-08T07:10:00Z,REDACT_RECORD,deletion_worker,account_service,account_3032,SUCCESS,Deletion worker submitted redaction of profile account_3032 to account_service.
+activity_26,2026-09-08T07:15:00Z,DELETE_RECORD,deletion_worker,support_service,ticket_3033,SUCCESS,Deletion worker submitted ticket ticket_3033 to support_service.
+activity_27,2026-09-08T09:00:00Z,DELETE_RECORD,deletion_worker,account_service,account_3232,SUCCESS,Deletion worker submitted primary profile account_3232 to account_service.
+activity_28,2026-09-08T09:05:00Z,DELETE_RECORD,deletion_worker,account_service,account_3233,SUCCESS,Deletion worker submitted primary profile account_3233 to account_service.
+activity_29,2026-09-08T09:30:00Z,LINK_RESOURCE_IDENTITY,data_catalog,account_service,account_3233,SUCCESS,Data catalog linked account_3233 (account_3233) to leila.haddad@yahoo.com and user_01.

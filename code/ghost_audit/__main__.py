@@ -10,7 +10,7 @@ import typing
 
 import ghost_audit.usage
 from ghost_audit.audit import Auditor
-from ghost_audit.dataset import csv_records, loaded_dataset
+from ghost_audit.dataset import DELETION_REQUESTS_FILE_NAME, csv_records, loaded_dataset
 from ghost_audit.output_format import HEADER, case_number
 
 if typing.TYPE_CHECKING:
@@ -31,7 +31,7 @@ def main(argv: list[str]) -> int:
     arguments = _Arguments()
     parser.parse_args(argv, arguments)
 
-    requests_path = arguments.requests or arguments.dataset / "deletion_requests.csv"
+    requests_path = arguments.requests or arguments.dataset / DELETION_REQUESTS_FILE_NAME
     requests = sorted(
         csv_records(requests_path), key=lambda request: case_number(request["case_id"])
     )

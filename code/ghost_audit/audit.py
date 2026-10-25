@@ -101,7 +101,7 @@ class Auditor:
             for claim in dataset.claims
             if claim.event_type == LINK_RESOURCE_IDENTITY
         ]
-        self._account_deletions = [
+        self._account_deletion_claims = [
             claim
             for claim in dataset.claims
             if claim.source_system == DELETION_WORKER
@@ -166,7 +166,7 @@ class Auditor:
             for observation in self._observations_by_identifier.get(identifier, ())
         ]
         links.extend(
-            ((claim.target_system, claim.resource_id), claim.event_time)
+            (claim.resource_key, claim.event_time)
             for claim, identifiers in self._catalog_links
             if identifiers & subject
         )
@@ -199,12 +199,10 @@ class Auditor:
         reported_at = datetime.fromisoformat(request["reported_at"])
         candidates = [
             claim
-            for claim in self._account_deletions
+            for claim in self._account_deletion_claims
             if claim.event_time <= audit_at
             and _is_in_nomination_window(claim, reported_at)
-            and not self._is_linked_to_other_user(
-                (claim.target_system, claim.resource_id), subject, audit_at
-            )
+            and not self._is_linked_to_other_user(claim.resource_key, subject, audit_at)
         ]
         expected_result = REPORTED_RESULT_BY_STATUS.get(request["reported_status"])
         matching = [claim for claim in candidates if claim.reported_result == expected_result]
@@ -224,10 +222,11 @@ class Auditor:
         linked_identifiers.extend(
             identifiers
             for claim, identifiers in self._catalog_links
-            if (claim.target_system, claim.resource_id) == key and claim.event_time <= audit_at
+            if claim.resource_key == key and claim.event_time <= audit_at
         )
+        known_identifiers = self._identifiers_by_identifier
         return any(
-            self._identifiers_by_identifier.get(identifier, subject) != subject
+            identifier in known_identifiers and known_identifiers[identifier] != subject
             for identifiers in linked_identifiers
             for identifier in identifiers
         )

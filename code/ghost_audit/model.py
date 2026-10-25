@@ -50,6 +50,10 @@ class Claim:
     reported_result: str
     details: str
 
+    @property
+    def resource_key(self) -> tuple[str, str]:
+        return self.target_system, self.resource_id
+
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Step:
