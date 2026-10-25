@@ -13,12 +13,18 @@ ACCOUNT_SYSTEM = "account_service"
 
 
 def _step(
-    step_no: int, phase: str, resource_id: str, operation: str, state: str, evidence_id: str
+    step_no: int,
+    phase: str,
+    resource_id: str,
+    operation: str,
+    state: str,
+    evidence_id: str,
+    system_id: str = ACCOUNT_SYSTEM,
 ) -> dict[str, object]:
     return {
         "step_no": step_no,
         "phase": phase,
-        "system_id": ACCOUNT_SYSTEM,
+        "system_id": system_id,
         "resource_id": resource_id,
         "operation": operation,
         "state": state,
@@ -26,16 +32,26 @@ def _step(
     }
 
 
-def _remaining_account_steps(resource_id: str, evidence_id: str) -> list[dict[str, object]]:
+def _remaining_steps(
+    resource_id: str, evidence_id: str, system_id: str = ACCOUNT_SYSTEM
+) -> list[dict[str, object]]:
     return [
-        _step(1, "FINDING", resource_id, "REPORT_REMAINING_RECORD", "PRESENT", evidence_id),
-        _step(2, "REMEDIATION", resource_id, "DELETE_RECORD", "ABSENT", ""),
-        _step(3, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", ""),
+        _step(
+            1, "FINDING", resource_id, "REPORT_REMAINING_RECORD", "PRESENT", evidence_id, system_id
+        ),
+        _step(2, "REMEDIATION", resource_id, "DELETE_RECORD", "ABSENT", "", system_id),
+        _step(3, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", "", system_id),
     ]
 
 
-def _absent_account_steps(resource_id: str, evidence_id: str) -> list[dict[str, object]]:
-    return [_step(1, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", evidence_id)]
+def _absent_steps(
+    resource_id: str, evidence_id: str, system_id: str = ACCOUNT_SYSTEM
+) -> list[dict[str, object]]:
+    return [
+        _step(
+            1, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", evidence_id, system_id
+        )
+    ]
 
 
 @pytest.fixture(scope="module")
@@ -73,25 +89,25 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_01",
             "INCOMPLETE",
-            _remaining_account_steps("account_101", "evidence_01"),
+            _remaining_steps("account_101", "evidence_01"),
             id="replica copy remains",
         ),
         pytest.param(
             "case_02",
             "COMPLETE",
-            _absent_account_steps("account_202", "evidence_02"),
+            _absent_steps("account_202", "evidence_02"),
             id="historical email linked by log trace",
         ),
         pytest.param(
             "case_03",
             "COMPLETE",
-            _absent_account_steps("account_303", "evidence_02"),
+            _absent_steps("account_303", "evidence_02"),
             id="snapshot after audit_at ignored",
         ),
         pytest.param(
             "case_04",
             "INCOMPLETE",
-            _remaining_account_steps("account_303", "evidence_03"),
+            _remaining_steps("account_303", "evidence_03"),
             id="snapshot before audit_at applies",
         ),
         pytest.param(
@@ -100,96 +116,131 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_06",
             "INCOMPLETE",
-            _remaining_account_steps("account_303", "evidence_02"),
+            _remaining_steps("account_303", "evidence_02"),
             id="latest record uncitable, latest citable evidence cited",
         ),
         pytest.param(
             "case_07",
             "INCOMPLETE",
-            _remaining_account_steps("account_505", "evidence_04"),
+            _remaining_steps("account_505", "evidence_04"),
             id="service export lookup found",
         ),
         pytest.param(
             "case_08",
             "COMPLETE",
-            _absent_account_steps("account_606", "evidence_04"),
+            _absent_steps("account_606", "evidence_04"),
             id="catalog link to service export lookup not found",
         ),
         pytest.param(
             "case_09",
             "COMPLETE",
-            _absent_account_steps("account_707", "evidence_05"),
+            _absent_steps("account_707", "evidence_05"),
             id="bracketed log trace",
         ),
         pytest.param(
             "case_10",
             "COMPLETE",
-            _absent_account_steps("account_808", "evidence_05"),
+            _absent_steps("account_808", "evidence_05"),
             id="pipe log trace",
         ),
         pytest.param(
             "case_11",
             "COMPLETE",
-            _absent_account_steps("account_909", "evidence_05"),
+            _absent_steps("account_909", "evidence_05"),
             id="syslog trace with uppercase email",
         ),
         pytest.param(
             "case_12",
             "COMPLETE",
-            _absent_account_steps("account_1010", "evidence_05"),
+            _absent_steps("account_1010", "evidence_05"),
             id="json log trace",
         ),
         pytest.param(
             "case_13",
             "INCOMPLETE",
-            _remaining_account_steps("account_1111", "evidence_06"),
+            _remaining_steps("account_1111", "evidence_06"),
             id="inventory sql snapshot",
         ),
         pytest.param(
             "case_14",
             "COMPLETE",
-            _absent_account_steps("account_1212", "evidence_07"),
+            _absent_steps("account_1212", "evidence_07"),
             id="text handover record",
         ),
         pytest.param(
             "case_15",
             "INCOMPLETE",
-            _remaining_account_steps("account_1313", "evidence_09"),
+            _remaining_steps("account_1313", "evidence_09"),
             id="record found only in uncitable log, earlier citable record cited",
         ),
         pytest.param(
             "case_16",
             "COMPLETE",
-            _absent_account_steps("account_1414", "evidence_03"),
+            _absent_steps("account_1414", "evidence_03"),
             id="later snapshot omits earlier record",
         ),
         pytest.param(
             "case_17",
             "INCOMPLETE",
-            _remaining_account_steps("account_1515", "evidence_09"),
-            id="json replica row remains",
+            [
+                *_remaining_steps("account_1515", "evidence_09"),
+                _step(
+                    4,
+                    "VERIFICATION",
+                    "search_4618",
+                    "VERIFY_RECORD_ABSENT",
+                    "ABSENT",
+                    "",
+                    "search_service",
+                ),
+            ],
+            id="json replica row remains, search entry gone in later snapshot",
         ),
         pytest.param(
             "case_18",
             "INCOMPLETE",
-            _remaining_account_steps("account_1616", "evidence_10"),
+            _remaining_steps("account_1616", "evidence_10"),
             id="json ledger record found",
         ),
         pytest.param(
             "case_19",
             "COMPLETE",
-            _absent_account_steps("account_1717", "evidence_11"),
+            _absent_steps("account_1717", "evidence_11"),
             id="log ledger record not found",
         ),
         pytest.param(
             "case_20",
             "COMPLETE",
-            _absent_account_steps("account_1819", "evidence_02"),
+            _absent_steps("account_1819", "evidence_02"),
             id="account deleted before an earlier request ignored",
+        ),
+        pytest.param(
+            "case_21",
+            "INCOMPLETE",
+            _remaining_steps("search_201", "evidence_13", "search_service"),
+            id="search index entry remains",
+        ),
+        pytest.param(
+            "case_22",
+            "INCOMPLETE",
+            _remaining_steps("export_301", "evidence_13", "export_service"),
+            id="export remains with download unavailable",
+        ),
+        pytest.param(
+            "case_23",
+            "INCOMPLETE",
+            _remaining_steps("support_401", "evidence_13", "support_platform"),
+            id="ticket attachment remains",
+        ),
+        pytest.param(
+            "case_24",
+            "COMPLETE",
+            _absent_steps("search_501", "evidence_13", "search_service"),
+            id="search index entry dropped from later snapshot",
         ),
     ],
 )
-def test_main_audits_account_records(run, case_id, expected_status, expected_steps):
+def test_main_audits_records(run, case_id, expected_status, expected_steps):
     _, output_dir = run
     output_rows = {
         row[0]: (row[1], json.loads(row[2])) for row in data_rows(output_dir / "output.csv")
