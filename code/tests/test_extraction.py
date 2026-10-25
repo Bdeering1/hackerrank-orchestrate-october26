@@ -33,6 +33,7 @@ ACCOUNT_OBSERVATION = Observation(
     identifiers=frozenset({"user_11", "haruka.s1838@zoho.com", "819076102507"}),
     observed_at=CAPTURED_AT,
     evidence_id=EVIDENCE_ID,
+    retention_end=None,
 )
 SCREENSHOT_BYTES = b"\x89PNG screenshot"
 INJECTED_TEXT = (
@@ -158,6 +159,7 @@ def test_pdf_pages_are_read_from_the_text_layer(tmp_path: Path) -> None:
             identifiers=frozenset({"priya.raman@gmail.com"}),
             observed_at=CAPTURED_AT,
             evidence_id=EVIDENCE_ID,
+            retention_end=None,
         ),
     )
 

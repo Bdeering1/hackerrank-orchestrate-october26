@@ -213,6 +213,7 @@ def _observation(
         ),
         observed_at=_observed_at(record, captured_at),
         evidence_id=evidence_id,
+        retention_end=None,
     )
 
 
