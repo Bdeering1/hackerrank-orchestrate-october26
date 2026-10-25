@@ -30,7 +30,7 @@ def main(argv: list[str]) -> int:
     promote_parser = subparsers.add_parser("promote")
     promote_parser.add_argument("run_id")
     validate_parser = subparsers.add_parser("validate")
-    validate_parser.add_argument("path", nargs="?", type=Path)
+    validate_parser.add_argument("output_path", nargs="?", type=Path)
     arguments = _Arguments()
     parser.parse_args(argv, arguments)
 
@@ -38,7 +38,7 @@ def main(argv: list[str]) -> int:
         return _promote(arguments.run_id)
 
     if arguments.command == "validate":
-        return _validate_full_set(arguments.path or DEFAULT_OUTPUT_PATH)
+        return _validate_full_set(arguments.output_path or DEFAULT_OUTPUT_PATH)
 
     if arguments.predictions is not None:
         return _score_predictions(arguments.predictions)
@@ -126,7 +126,7 @@ class _Arguments(argparse.Namespace):
     predictions: Path | None
     command: str | None
     run_id: str
-    path: Path | None
+    output_path: Path | None
 
 
 if __name__ == "__main__":
