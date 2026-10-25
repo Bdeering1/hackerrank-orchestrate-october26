@@ -9,39 +9,22 @@ from pydantic import BaseModel
 
 from ghost_audit.llm import Completion, LLMError, StructuredLLM
 from ghost_audit.usage import UsageTracker
+from tests.fakes import REQUEST, FakeTransport, scripted
 
 
 class Answer(BaseModel):
     answer: bool
 
 
-class ScriptedTransport:
-    def __init__(self, responses: list[Completion | Exception]) -> None:
-        self.responses = iter(responses)
-        self.calls = 0
-
-    async def complete(
-        self,
-        model: str,
-        system_prompt: str,
-        user_message: str,
-        schema_name: str,
-        schema: dict[str, object],
-    ) -> Completion:
-        self.calls += 1
-        response = next(self.responses)
-        if isinstance(response, Exception):
-            raise response
-        return response
-
-
 def test_parse_uses_disk_cache_and_cache_key_inputs(tmp_path: Path) -> None:
-    transport = ScriptedTransport(
-        [
-            Completion('{"answer": true}', 1, 2),
-            Completion('{"answer": false}', 3, 4),
-            Completion('{"answer": true}', 5, 6),
-        ]
+    transport = FakeTransport(
+        scripted(
+            [
+                Completion('{"answer": true}', 1, 2),
+                Completion('{"answer": false}', 3, 4),
+                Completion('{"answer": true}', 5, 6),
+            ]
+        )
     )
     usage = UsageTracker()
     llm = StructuredLLM(transport, usage, tmp_path)
@@ -52,7 +35,7 @@ def test_parse_uses_disk_cache_and_cache_key_inputs(tmp_path: Path) -> None:
     assert not asyncio.run(llm.parse("test/two", "prompt", "message", Answer)).answer
     assert asyncio.run(llm.parse("test/one", "other prompt", "message", Answer)).answer
 
-    assert transport.calls == 3
+    assert len(transport.requests) == 3
     usage_path = tmp_path / "usage.json"
     usage.write(usage_path)
     assert json.loads(usage_path.read_text(encoding="utf-8")) == {
@@ -61,9 +44,6 @@ def test_parse_uses_disk_cache_and_cache_key_inputs(tmp_path: Path) -> None:
             {"provider": "test", "model": "two", "calls": 1, "input_tokens": 3, "output_tokens": 4},
         ]
     }
-
-
-REQUEST = httpx.Request("POST", "https://example.test")
 
 
 @pytest.mark.parametrize(
@@ -80,7 +60,7 @@ REQUEST = httpx.Request("POST", "https://example.test")
     ],
 )
 def test_parse_retries_transient_failures(tmp_path: Path, error: Exception) -> None:
-    transport = ScriptedTransport([error, Completion('{"answer": true}', 1, 2)])
+    transport = FakeTransport(scripted([error, Completion('{"answer": true}', 1, 2)]))
 
     async def sleep(delay: float) -> None:
         return None
@@ -88,12 +68,12 @@ def test_parse_retries_transient_failures(tmp_path: Path, error: Exception) -> N
     llm = StructuredLLM(transport, UsageTracker(), tmp_path, sleep=sleep)
 
     assert asyncio.run(llm.parse("test/one", "prompt", "message", Answer)).answer
-    assert transport.calls == 2
+    assert len(transport.requests) == 2
 
 
 def test_parse_retries_invalid_json_and_records_its_usage(tmp_path: Path) -> None:
-    transport = ScriptedTransport(
-        [Completion("invalid", 2, 3), Completion('{"answer": true}', 5, 7)]
+    transport = FakeTransport(
+        scripted([Completion("invalid", 2, 3), Completion('{"answer": true}', 5, 7)])
     )
     usage = UsageTracker()
 
@@ -114,20 +94,20 @@ def test_parse_retries_invalid_json_and_records_its_usage(tmp_path: Path) -> Non
 
 def test_parse_does_not_retry_non_transient_errors(tmp_path: Path) -> None:
     response = httpx.Response(400, request=REQUEST)
-    transport = ScriptedTransport(
-        [openai.BadRequestError("bad request", response=response, body=None)]
+    transport = FakeTransport(
+        scripted([openai.BadRequestError("bad request", response=response, body=None)])
     )
     llm = StructuredLLM(transport, UsageTracker(), tmp_path)
 
     with pytest.raises(LLMError):
         asyncio.run(llm.parse("test/one", "prompt", "message", Answer))
 
-    assert transport.calls == 1
+    assert len(transport.requests) == 1
 
 
 def test_parse_raises_after_transient_attempts_are_exhausted(tmp_path: Path) -> None:
     error = openai.APIConnectionError(request=REQUEST)
-    transport = ScriptedTransport([error, error])
+    transport = FakeTransport(scripted([error, error]))
 
     async def sleep(delay: float) -> None:
         return None
@@ -137,15 +117,15 @@ def test_parse_raises_after_transient_attempts_are_exhausted(tmp_path: Path) -> 
     with pytest.raises(LLMError):
         asyncio.run(llm.parse("test/one", "prompt", "message", Answer))
 
-    assert transport.calls == 2
+    assert len(transport.requests) == 2
 
 
 def test_parse_treats_invalid_cache_entry_as_miss(tmp_path: Path) -> None:
-    transport = ScriptedTransport([Completion('{"answer": true}', 1, 2)] * 2)
+    transport = FakeTransport(scripted([Completion('{"answer": true}', 1, 2)] * 2))
     llm = StructuredLLM(transport, UsageTracker(), tmp_path)
     asyncio.run(llm.parse("test/one", "prompt", "message", Answer))
     (cache_path,) = tmp_path.glob("*.json")
     cache_path.write_text("corrupt", encoding="utf-8")
 
     assert asyncio.run(llm.parse("test/one", "prompt", "message", Answer)).answer
-    assert transport.calls == 2
+    assert len(transport.requests) == 2

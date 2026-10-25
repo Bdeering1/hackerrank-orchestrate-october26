@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import pathlib
+import random
 import typing
 import uuid
 from collections.abc import Awaitable, Callable
@@ -25,6 +26,7 @@ API_KEY_ENV = "AI_GATEWAY_API_KEY"
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFAULT_CACHE_DIR = REPO_ROOT / ".cache" / "llm"
 CONCURRENCY_LIMIT = 8
+JITTER = random.SystemRandom()
 
 Sleep = Callable[[float], Awaitable[None]]
 
@@ -42,17 +44,21 @@ class Completion:
     output_tokens: int
 
 
+@dataclass(frozen=True)
+class StructuredRequest:
+    """One prompt and the JSON schema its response must match."""
+
+    model: str
+    system_prompt: str
+    user_message: str
+    schema_name: str
+    schema: dict[str, object]
+
+
 class Transport(typing.Protocol):
     """Send one structured request to an LLM provider."""
 
-    async def complete(
-        self,
-        model: str,
-        system_prompt: str,
-        user_message: str,
-        schema_name: str,
-        schema: dict[str, object],
-    ) -> Completion:
+    async def complete(self, request: StructuredRequest) -> Completion:
         """Return a structured completion."""
         ...
 
@@ -63,31 +69,24 @@ class GatewayTransport:
     def __init__(self) -> None:
         self._client: openai.AsyncOpenAI | None = None
 
-    async def complete(
-        self,
-        model: str,
-        system_prompt: str,
-        user_message: str,
-        schema_name: str,
-        schema: dict[str, object],
-    ) -> Completion:
+    async def complete(self, request: StructuredRequest) -> Completion:
         """Request a JSON-schema constrained completion."""
         response_format = typing.cast(
             "ResponseFormatJSONSchema",
             {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": schema_name,
-                    "schema": schema,
+                    "name": request.schema_name,
+                    "schema": request.schema,
                     "strict": True,
                 },
             },
         )
         response = await self._connected_client().chat.completions.create(
-            model=model,
+            model=request.model,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
+                {"role": "system", "content": request.system_prompt},
+                {"role": "user", "content": request.user_message},
             ],
             response_format=response_format,
             temperature=0,
@@ -104,7 +103,7 @@ class GatewayTransport:
             return self._client
         api_key = os.environ.get(API_KEY_ENV)
         if api_key is None:
-            message = f"{API_KEY_ENV} is not set"
+            message = f"{API_KEY_ENV} is not set; export it or run with `uv run --env-file ../.env`"
             raise LLMError(message)
         self._client = openai.AsyncOpenAI(
             base_url=GATEWAY_BASE_URL,
@@ -141,8 +140,14 @@ class StructuredLLM:
         response_type: type[T],
     ) -> T:
         """Return a validated structured response."""
-        schema = typing.cast("dict[str, object]", response_type.model_json_schema())
-        cache_path = self._cache_path(model, system_prompt, user_message, schema)
+        request = StructuredRequest(
+            model=model,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            schema_name=response_type.__name__,
+            schema=typing.cast("dict[str, object]", response_type.model_json_schema()),
+        )
+        cache_path = self._cache_path(request)
         if cache_path.exists():
             try:
                 return response_type.model_validate_json(cache_path.read_text(encoding="utf-8"))
@@ -154,13 +159,7 @@ class StructuredLLM:
         for attempt in range(self._max_attempts):
             try:
                 async with self._semaphore:
-                    completion = await self._transport.complete(
-                        model,
-                        system_prompt,
-                        user_message,
-                        response_type.__name__,
-                        schema,
-                    )
+                    completion = await self._transport.complete(request)
                 self._usage_tracker.record(
                     provider,
                     model_name,
@@ -184,24 +183,18 @@ class StructuredLLM:
                 return result
 
             if attempt + 1 < self._max_attempts:
-                await self._sleep(float(1 << attempt))
+                await self._sleep(_retry_delay(attempt, last_error))
 
         message = f"LLM request failed after retries: {last_error!r}"
         raise LLMError(message) from last_error
 
-    def _cache_path(
-        self,
-        model: str,
-        system_prompt: str,
-        user_message: str,
-        schema: dict[str, object],
-    ) -> pathlib.Path:
+    def _cache_path(self, request: StructuredRequest) -> pathlib.Path:
         cache_input = json.dumps(
             {
-                "model": model,
-                "system_prompt": system_prompt,
-                "schema": schema,
-                "user_message": user_message,
+                "model": request.model,
+                "system_prompt": request.system_prompt,
+                "schema": request.schema,
+                "user_message": request.user_message,
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -215,6 +208,16 @@ class StructuredLLM:
         temporary_path = cache_path.with_suffix(f".{uuid.uuid4().hex}.tmp")
         temporary_path.write_text(text, encoding="utf-8")
         temporary_path.replace(cache_path)
+
+
+def _retry_delay(attempt: int, error: Exception) -> float:
+    """Back off exponentially with jitter, waiting at least as long as a 429 asks."""
+    delay = (1 << attempt) * JITTER.uniform(1.0, 1.5)
+    if isinstance(error, openai.RateLimitError):
+        retry_after = error.response.headers.get("retry-after", "")
+        if retry_after.isdecimal():
+            delay = max(delay, float(retry_after))
+    return delay
 
 
 def connect(usage_tracker: UsageTracker) -> StructuredLLM:

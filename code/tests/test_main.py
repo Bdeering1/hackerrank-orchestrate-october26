@@ -2,16 +2,15 @@ import csv
 import json
 from pathlib import Path
 
-import httpx2 as httpx
-import openai
 import pytest
 
 import ghost_audit.__main__
 import ghost_audit.llm
 from evaluation.validate import data_rows, validation_errors
 from ghost_audit.__main__ import main
-from ghost_audit.llm import Completion, StructuredLLM
+from ghost_audit.llm import StructuredLLM
 from ghost_audit.usage import UsageTracker
+from tests.fakes import FakeTransport, fail_to_connect
 
 REQUESTS_PATH = Path(__file__).resolve().parents[2] / "dataset" / "sample_deletion_requests.csv"
 
@@ -101,7 +100,7 @@ def test_main_keeps_existing_output_when_intent_routing_fails(
 
     def connect(usage_tracker: UsageTracker) -> StructuredLLM:
         return StructuredLLM(
-            AlwaysFailingTransport(),
+            FakeTransport(fail_to_connect),
             usage_tracker,
             tmp_path / "llm-cache",
             max_attempts=1,
@@ -112,18 +111,6 @@ def test_main_keeps_existing_output_when_intent_routing_fails(
     assert main(["--requests", str(requests_path), "--output", str(output_path)]) == 1
 
     assert output_path.read_text(encoding="utf-8") == "previous output"
-
-
-class AlwaysFailingTransport:
-    async def complete(
-        self,
-        model: str,
-        system_prompt: str,
-        user_message: str,
-        schema_name: str,
-        schema: dict[str, object],
-    ) -> Completion:
-        raise openai.APIConnectionError(request=httpx.Request("POST", "https://example.test"))
 
 
 def _write_requests(path: Path, rows: list[tuple[str, str]]) -> None:

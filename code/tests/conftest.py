@@ -1,30 +1,12 @@
-import json
 import os
 from pathlib import Path
 
 import pytest
 
 import ghost_audit.llm
-from ghost_audit.intent import USER_MESSAGE_PREFIX
-from ghost_audit.llm import Completion, StructuredLLM
+from ghost_audit.llm import StructuredLLM
 from ghost_audit.usage import UsageTracker
-
-
-class FakeIntentTransport:
-    async def complete(
-        self,
-        model: str,
-        system_prompt: str,
-        user_message: str,
-        schema_name: str,
-        schema: dict[str, object],
-    ) -> Completion:
-        request_text = json.loads(user_message.removeprefix(USER_MESSAGE_PREFIX))
-        decision = {
-            "reasoning": "The marker determines this offline test decision.",
-            "authorizes_deletion": "NO_DELETE" not in request_text,
-        }
-        return Completion(text=json.dumps(decision), input_tokens=3, output_tokens=5)
+from tests.fakes import FakeTransport, decide_intent
 
 
 @pytest.fixture(autouse=True)
@@ -52,6 +34,6 @@ def fake_llm_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def connect(usage_tracker: UsageTracker) -> StructuredLLM:
-        return StructuredLLM(FakeIntentTransport(), usage_tracker, tmp_path / "llm-cache")
+        return StructuredLLM(FakeTransport(decide_intent), usage_tracker, tmp_path / "llm-cache")
 
     monkeypatch.setattr(ghost_audit.llm, "connect", connect)
