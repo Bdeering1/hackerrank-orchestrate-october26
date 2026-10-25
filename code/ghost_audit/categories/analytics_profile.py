@@ -9,7 +9,7 @@ if typing.TYPE_CHECKING:
     from collections.abc import Mapping
 
 
-IDENTIFIER_FIELDS = (
+ATTRIBUTION_FIELDS = (
     "user_id",
     "customer_reference",
     "email",
@@ -23,7 +23,9 @@ def _existing_state(record: Mapping[str, object]) -> str:
     if (result_state := state_from_result(record)) is not None:
         return result_state
     return (
-        PRESENT if any(record.get(field) is not None for field in IDENTIFIER_FIELDS) else ANONYMIZED
+        PRESENT
+        if any(record.get(field) is not None for field in ATTRIBUTION_FIELDS)
+        else ANONYMIZED
     )
 
 

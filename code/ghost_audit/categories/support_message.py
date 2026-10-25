@@ -11,7 +11,12 @@ if typing.TYPE_CHECKING:
 
 REDACTED_MESSAGE = "[REDACTED]"
 CONTACT_QUERY_COMPLETED = "contact_query_completed"
-IDENTIFIER_FIELDS = ("requester_name", "requester_email", "requester_phone", "matched_value")
+REQUESTER_IDENTIFIER_FIELDS = (
+    "requester_name",
+    "requester_email",
+    "requester_phone",
+    "matched_value",
+)
 
 
 def _existing_state(record: Mapping[str, object]) -> str:
@@ -19,7 +24,7 @@ def _existing_state(record: Mapping[str, object]) -> str:
         return PRESENT
     if (result_state := state_from_result(record)) is not None:
         return result_state
-    if any(record.get(field) is not None for field in IDENTIFIER_FIELDS):
+    if any(record.get(field) is not None for field in REQUESTER_IDENTIFIER_FIELDS):
         return PRESENT
     return PRESENT if record.get("message_text") not in (None, REDACTED_MESSAGE) else REDACTED
 

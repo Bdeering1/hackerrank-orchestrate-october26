@@ -38,6 +38,20 @@ def _absent_account_steps(resource_id: str, evidence_id: str) -> list[dict[str, 
     return [_step(1, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", evidence_id)]
 
 
+def _redacted_support_steps(resource_id: str, evidence_id: str) -> list[dict[str, object]]:
+    return [
+        _step(
+            1,
+            "VERIFICATION",
+            resource_id,
+            "VERIFY_RECORD_REDACTED",
+            "REDACTED",
+            evidence_id,
+            SUPPORT_SYSTEM,
+        )
+    ]
+
+
 def _treatment_steps(
     system_id: str,
     resource_id: str,
@@ -45,9 +59,10 @@ def _treatment_steps(
     remediation: str,
     verification: str,
     end_state: str,
+    finding: str = "REPORT_EXPOSED_PII",
 ) -> list[dict[str, object]]:
     return [
-        _step(1, "FINDING", resource_id, "REPORT_EXPOSED_PII", "PRESENT", evidence_id, system_id),
+        _step(1, "FINDING", resource_id, finding, "PRESENT", evidence_id, system_id),
         _step(2, "REMEDIATION", resource_id, remediation, end_state, "", system_id),
         _step(3, "VERIFICATION", resource_id, verification, end_state, "", system_id),
     ]
@@ -56,27 +71,15 @@ def _treatment_steps(
 def _remaining_record_steps(
     resource_id: str, evidence_id: str, system_id: str = ACCOUNT_SYSTEM
 ) -> list[dict[str, object]]:
-    return [
-        _step(
-            1,
-            "FINDING",
-            resource_id,
-            "REPORT_REMAINING_RECORD",
-            "PRESENT",
-            evidence_id,
-            system_id,
-        ),
-        _step(2, "REMEDIATION", resource_id, "DELETE_RECORD", "ABSENT", "", system_id),
-        _step(
-            3,
-            "VERIFICATION",
-            resource_id,
-            "VERIFY_RECORD_ABSENT",
-            "ABSENT",
-            "",
-            system_id,
-        ),
-    ]
+    return _treatment_steps(
+        system_id,
+        resource_id,
+        evidence_id,
+        "DELETE_RECORD",
+        "VERIFY_RECORD_ABSENT",
+        "ABSENT",
+        finding="REPORT_REMAINING_RECORD",
+    )
 
 
 @pytest.fixture(scope="module")
@@ -258,17 +261,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
         pytest.param(
             "case_22",
             "COMPLETE",
-            [
-                _step(
-                    1,
-                    "VERIFICATION",
-                    "support_2201",
-                    "VERIFY_RECORD_REDACTED",
-                    "REDACTED",
-                    "evidence_13",
-                    SUPPORT_SYSTEM,
-                )
-            ],
+            _redacted_support_steps("support_2201", "evidence_13"),
             id="redacted support message retains stable reference",
         ),
         pytest.param(
@@ -299,17 +292,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
         pytest.param(
             "case_26",
             "COMPLETE",
-            [
-                _step(
-                    1,
-                    "VERIFICATION",
-                    "support_2601",
-                    "VERIFY_RECORD_REDACTED",
-                    "REDACTED",
-                    "evidence_14",
-                    SUPPORT_SYSTEM,
-                )
-            ],
+            _redacted_support_steps("support_2601", "evidence_14"),
             id="later snapshot omission does not erase retained support record",
         ),
         pytest.param(
