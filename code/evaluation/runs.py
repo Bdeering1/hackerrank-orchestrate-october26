@@ -356,6 +356,7 @@ def _compare_full_sets(
         status_transitions[baseline_status][run_status] += 1
         if baseline_status != run_status or baseline_steps != run_steps:
             changed_case_count += 1
+    changed_case_count += len(run_rows.keys() - baseline_rows.keys())
 
     disagreements = [
         FullSetCaseDisagreement(
@@ -527,13 +528,9 @@ def _render_full_set(comparison: RunComparison) -> list[str]:
         _full_set_summary(full_set),
         "",
         "Status transitions (baseline rows, run columns):",
+        "| Baseline status | " + " | ".join(STATUSES) + " |",
+        "| --- | " + " | ".join("---:" for _ in STATUSES) + " |",
     ]
-    lines.extend(
-        [
-            "| Baseline status | " + " | ".join(STATUSES) + " |",
-            "| --- | " + " | ".join("---:" for _ in STATUSES) + " |",
-        ]
-    )
     lines.extend(
         "| "
         + baseline_status
@@ -546,13 +543,6 @@ def _render_full_set(comparison: RunComparison) -> list[str]:
     )
     lines.extend(
         [
-            "",
-            f"Changed cases: {full_set.changed_case_count}/{full_set.case_count}",
-            f"Pooled step F1: {full_set.pooled_step_f1:.1%}",
-            (
-                f"Cost per request: ${full_set.baseline_cost_per_request_usd:.6f} -> "
-                f"${full_set.run_cost_per_request_usd:.6f}"
-            ),
             "",
             f"#### Top step disagreements ({len(full_set.top_step_disagreements)})",
         ]

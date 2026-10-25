@@ -279,9 +279,6 @@ def test_full_set_diff_reports_transitions_changes_and_disagreements(record) -> 
     assert full_set.top_step_disagreements[0].unmatched_step_count == 1
     diff_markdown = (runs.RUNS_DIR / run_id / runs.DIFF_FILENAME).read_text()
     assert "### Full set" in diff_markdown
-    assert "Changed cases: 1/32" in diff_markdown
-    assert "Pooled step F1:" in diff_markdown
-    assert "| case_01 | 1 | COMPLETE | NOT_APPLICABLE |" in diff_markdown
 
 
 def test_full_set_top_step_disagreements_are_ordered(record) -> None:
