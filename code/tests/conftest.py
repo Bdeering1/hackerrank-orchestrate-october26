@@ -1,6 +1,9 @@
 import os
+from pathlib import Path
 
 import pytest
+
+from evaluation import runs
 
 
 @pytest.fixture(autouse=True)
@@ -20,3 +23,11 @@ def isolated_home(
     monkeypatch.setenv("HOME", str(home))
     for env_var, xdg_dir in xdg_dirs.items():
         monkeypatch.setenv(env_var, str(xdg_dir))
+
+
+@pytest.fixture(autouse=True)
+def runs_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    path = tmp_path / "eval_runs"
+    monkeypatch.setattr(runs, "RUNS_DIR", path)
+    monkeypatch.setattr(runs, "_is_interactive", lambda: False)
+    return path

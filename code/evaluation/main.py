@@ -6,6 +6,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+from evaluation.runs import PromotionRefusedError, promote_run, record_run
 from evaluation.score import case_scores, render_markdown
 from evaluation.usage import format_usage_summary, usage_summary
 from evaluation.validate import csv_rows, validation_errors
@@ -20,11 +21,16 @@ AUDIT_LOG_PATH = DATASET_DIR / "user_audit_log.csv"
 
 
 def main(argv: list[str]) -> int:
-    """Run or validate sample predictions and render weighted scores."""
+    """Run, validate or promote sample predictions and render weighted scores."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--predictions", type=Path)
+    promote_parser = parser.add_subparsers(dest="command").add_parser("promote")
+    promote_parser.add_argument("run_id")
     arguments = _Arguments()
     parser.parse_args(argv, arguments)
+
+    if arguments.command == "promote":
+        return _promote(arguments.run_id)
 
     if arguments.predictions is not None:
         return _score_predictions(arguments.predictions)
@@ -57,10 +63,23 @@ def _score_predictions(predictions_path: Path, usage_path: Path | None = None) -
             sys.stderr.write(f"{error}\n")
         return 1
 
-    sys.stdout.write(render_markdown(case_scores(predictions_path, LABELS_PATH)))
-    if usage_path is not None:
-        summary = usage_summary(usage_path, len(audit_times))
-        sys.stdout.write(f"{format_usage_summary(summary)}\n")
+    scores_markdown = render_markdown(case_scores(predictions_path, LABELS_PATH))
+    sys.stdout.write(scores_markdown)
+    if usage_path is None:
+        return 0
+    summary = usage_summary(usage_path, len(audit_times))
+    sys.stdout.write(f"{format_usage_summary(summary)}\n")
+    record_run(predictions_path, usage_path, LABELS_PATH, scores_markdown)
+    return 0
+
+
+def _promote(run_id: str) -> int:
+    try:
+        promote_run(run_id)
+    except PromotionRefusedError as error:
+        sys.stderr.write(f"{error}\n")
+        return 1
+    sys.stdout.write(f"Run {run_id}: promoted\n")
     return 0
 
 
@@ -79,6 +98,8 @@ def _times_from(path: Path, time_column: str) -> dict[str, datetime]:
 
 class _Arguments(argparse.Namespace):
     predictions: Path | None
+    command: str | None
+    run_id: str
 
 
 if __name__ == "__main__":
