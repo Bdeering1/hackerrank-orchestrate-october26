@@ -1,5 +1,6 @@
 import csv
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,8 @@ def test_main_writes_valid_output_for_samples(tmp_path: Path) -> None:
 
     assert main(["--requests", str(REQUESTS_PATH), "--output", str(output_path)]) == 0
 
-    assert validation_errors(output_path, [row[0] for row in data_rows(REQUESTS_PATH)]) == []
+    audit_times = {row[0]: datetime.fromisoformat(row[5]) for row in data_rows(REQUESTS_PATH)}
+    assert validation_errors(output_path, audit_times, evidence_times={}) == []
 
 
 def test_main_routes_non_deletion_and_deletion_requests(

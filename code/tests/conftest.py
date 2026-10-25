@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 import ghost_audit.llm
+from evaluation import runs
 from ghost_audit.llm import StructuredLLM
 from ghost_audit.usage import UsageTracker
 from tests.fakes import FakeTransport, decide_intent
@@ -37,3 +38,11 @@ def fake_llm_connection(
         return StructuredLLM(FakeTransport(decide_intent), usage_tracker, tmp_path / "llm-cache")
 
     monkeypatch.setattr(ghost_audit.llm, "connect", connect)
+
+
+@pytest.fixture(autouse=True)
+def runs_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    path = tmp_path / "eval_runs"
+    monkeypatch.setattr(runs, "RUNS_DIR", path)
+    monkeypatch.setattr(runs, "_is_interactive", lambda: False)
+    return path
