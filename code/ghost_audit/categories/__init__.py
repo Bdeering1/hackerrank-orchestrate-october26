@@ -1,3 +1,9 @@
+"""Data categories, one module each.
+
+CACHE_ENTRY and EMAIL_DELIVERY_LOG have no module: their records appear only in activity
+rows that carry no identifier, so none can be tied to a subject.
+"""
+
 from __future__ import annotations
 
 import dataclasses
