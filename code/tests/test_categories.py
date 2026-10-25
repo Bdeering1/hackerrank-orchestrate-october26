@@ -42,6 +42,9 @@ def test_data_flow_state_comes_from_enabled_or_ledger_result(record, expected_st
             {"eligible": "true", "deletion_block": "true"}, BLOCKED, id="deletion blocked"
         ),
         pytest.param({"result": "UNKNOWN"}, ACTIVE, id="unknown result fails closed"),
+        pytest.param({}, ACTIVE, id="missing restore fields fail closed"),
+        pytest.param({"restore_allowed": None}, ACTIVE, id="null restore fails closed"),
+        pytest.param({"decision": "allow"}, ACTIVE, id="allowed restore authorization"),
     ],
 )
 def test_backup_state_comes_from_restore_evidence(record, expected_state):

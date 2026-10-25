@@ -42,7 +42,6 @@ class PlanRule:
     finding: Operation
     remediation: Operation
     verification: Operation
-    absent_is_compliant: bool = False
 
 
 PLAN_RULES = {
@@ -166,7 +165,7 @@ class Auditor:
         citation = max(
             citable,
             key=lambda proof: (
-                (not _state_satisfies(rule, proof.state)) == has_gap,
+                (proof.state != rule.end_state) == has_gap,
                 proof.copy in gap_copies,
                 proof.is_observation,
                 proof.observed_at,
@@ -200,6 +199,7 @@ class Auditor:
             )
             for observation in observations
         ]
+        # Snapshots list only some connectors and backups, so omission proves nothing.
         category_rule = CATEGORY_PLAN_RULES.get(category)
         if category_rule is not None:
             return category_rule, proofs
@@ -223,13 +223,7 @@ def _gap_copies(rule: PlanRule, proofs: Iterable[_Proof]) -> set[str]:
         proofs, key=lambda proof: (proof.observed_at, proof.is_observation), reverse=True
     ):
         latest_by_copy.setdefault(proof.copy, proof)
-    return {
-        copy for copy, latest in latest_by_copy.items() if not _state_satisfies(rule, latest.state)
-    }
-
-
-def _state_satisfies(rule: PlanRule, state: str) -> bool:
-    return state == rule.end_state or (state == ABSENT and rule.absent_is_compliant)
+    return {copy for copy, latest in latest_by_copy.items() if latest.state != rule.end_state}
 
 
 def _planned_steps(assessments: Iterable[_ResourceAssessment], *, is_complete: bool) -> list[Step]:
