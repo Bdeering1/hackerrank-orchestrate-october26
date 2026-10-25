@@ -8,3 +8,5 @@ evidence_06,evidence/databases/customer_data_inventory_20260904.sql,customer_dat
 evidence_07,evidence/records/customer_account_handover_20260904.txt,shift_handover_notes,2026-09-04T13:00:00Z
 evidence_08,evidence/databases/customer_accounts_read_replica_20260903.sql,customer_account_read_replica_capture,2026-09-06T08:00:00Z
 evidence_09,evidence/databases/customer_data_reporting_replica_20260903.sql,customer_data_reporting_replica_capture,2026-09-03T06:00:00Z
+evidence_10,evidence/records/security_audit_ledger_20260904.json,security_audit_export,2026-09-04T10:00:00Z
+evidence_11,evidence/logs/search_index_diagnostic_20260904.log,search_index_diagnostics,2026-09-04T10:00:00Z

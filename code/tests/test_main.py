@@ -169,6 +169,18 @@ def test_main_writes_valid_output_and_usage(run):
             _remaining_account_steps("account_1515", "evidence_09"),
             id="json replica row remains",
         ),
+        pytest.param(
+            "case_18",
+            "INCOMPLETE",
+            _remaining_account_steps("account_1616", "evidence_10"),
+            id="json ledger record found",
+        ),
+        pytest.param(
+            "case_19",
+            "COMPLETE",
+            _absent_account_steps("account_1717", "evidence_11"),
+            id="log ledger record not found",
+        ),
     ],
 )
 def test_main_audits_account_records(run, case_id, expected_status, expected_steps):
