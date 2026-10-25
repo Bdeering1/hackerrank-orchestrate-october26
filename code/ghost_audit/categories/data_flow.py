@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import typing
 
-from ghost_audit.categories import Category, has_falsey_value, state_from_result
+from ghost_audit.categories import (
+    Category,
+    has_falsey_value,
+    is_always_met,
+    recreation_state_from_result,
+)
 from ghost_audit.model import ACTIVE, DISABLED
 
 if typing.TYPE_CHECKING:
@@ -11,7 +16,7 @@ if typing.TYPE_CHECKING:
 
 def _existing_state(record: Mapping[str, object]) -> str:
     if "result" in record:
-        return state_from_result(record, DISABLED)
+        return recreation_state_from_result(record, DISABLED)
     return DISABLED if has_falsey_value(record, "enabled") else ACTIVE
 
 
@@ -29,4 +34,5 @@ CATEGORY = Category(
         }
     ),
     existing_state=_existing_state,
+    is_condition_met=is_always_met,
 )

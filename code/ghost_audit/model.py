@@ -11,6 +11,8 @@ ABSENT = "ABSENT"
 ACTIVE = "ACTIVE"
 DISABLED = "DISABLED"
 BLOCKED = "BLOCKED"
+REDACTED = "REDACTED"
+ANONYMIZED = "ANONYMIZED"
 PRIMARY_COPY = "primary"
 
 
@@ -23,6 +25,7 @@ class Observation:
     copy: str
     category: str
     state: str
+    is_condition_met: bool
     identifiers: frozenset[str]
     observed_at: datetime
     evidence_id: str

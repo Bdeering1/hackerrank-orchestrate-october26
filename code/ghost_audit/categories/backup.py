@@ -6,7 +6,8 @@ from ghost_audit.categories import (
     Category,
     has_falsey_value,
     has_truthy_value,
-    state_from_result,
+    is_always_met,
+    recreation_state_from_result,
 )
 from ghost_audit.model import ACTIVE, BLOCKED
 
@@ -16,7 +17,7 @@ if typing.TYPE_CHECKING:
 
 def _existing_state(record: Mapping[str, object]) -> str:
     if "result" in record:
-        return state_from_result(record, BLOCKED)
+        return recreation_state_from_result(record, BLOCKED)
     if "decision" in record:
         return BLOCKED if str(record["decision"]).casefold() == "deny" else ACTIVE
     if "restore_allowed" in record:
@@ -43,4 +44,5 @@ CATEGORY = Category(
         }
     ),
     existing_state=_existing_state,
+    is_condition_met=is_always_met,
 )

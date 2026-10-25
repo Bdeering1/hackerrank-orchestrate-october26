@@ -6,17 +6,22 @@ from datetime import datetime, timedelta
 
 from ghost_audit import identity
 from ghost_audit.categories import account, backup, data_flow
-from ghost_audit.model import ABSENT, BLOCKED, DISABLED, Step
+from ghost_audit.model import ABSENT, ANONYMIZED, BLOCKED, DISABLED, REDACTED, Step
 from ghost_audit.output_format import (
+    ANONYMIZE_RECORD,
     BLOCK_RESTORE,
     DELETE_RECORD,
     DISABLE_DATA_FLOW,
     OPERATION_ORDER,
+    REDACT_RECORD,
     REPORT_ACTIVE_DATA_FLOW,
+    REPORT_EXPOSED_PII,
     REPORT_REMAINING_RECORD,
     REPORT_RESTORE_RISK,
     VERIFY_DATA_FLOW_DISABLED,
     VERIFY_RECORD_ABSENT,
+    VERIFY_RECORD_ANONYMIZED,
+    VERIFY_RECORD_REDACTED,
     VERIFY_RESTORE_BLOCKED,
     Operation,
 )
@@ -30,6 +35,7 @@ if typing.TYPE_CHECKING:
 COMPLETE = "COMPLETE"
 INCOMPLETE = "INCOMPLETE"
 NOT_APPLICABLE = "NOT_APPLICABLE"
+DELETE_ACTION = "DELETE"
 LINK_RESOURCE_IDENTITY = "LINK_RESOURCE_IDENTITY"
 DELETION_WORKER = "deletion_worker"
 TARGET_RESOURCE_MARKER = "Target resource:"
@@ -55,7 +61,11 @@ class PlanRule:
 
 
 PLAN_RULES = {
-    "DELETE": PlanRule(ABSENT, REPORT_REMAINING_RECORD, DELETE_RECORD, VERIFY_RECORD_ABSENT),
+    DELETE_ACTION: PlanRule(ABSENT, REPORT_REMAINING_RECORD, DELETE_RECORD, VERIFY_RECORD_ABSENT),
+    "REDACT": PlanRule(REDACTED, REPORT_EXPOSED_PII, REDACT_RECORD, VERIFY_RECORD_REDACTED),
+    "ANONYMIZE": PlanRule(
+        ANONYMIZED, REPORT_EXPOSED_PII, ANONYMIZE_RECORD, VERIFY_RECORD_ANONYMIZED
+    ),
 }
 CATEGORY_PLAN_RULES = {
     data_flow.CATEGORY.rule_category: PlanRule(
@@ -304,18 +314,22 @@ class Auditor:
         category_rule = CATEGORY_PLAN_RULES.get(category)
         if category_rule is not None:
             return category_rule, proofs
-        proofs.extend(
-            _Proof(
-                coverage.copy,
-                ABSENT,
-                coverage.observed_at,
-                coverage.evidence_id,
-                is_observation=False,
+        action = self._dataset.required_actions[category]
+        if not any(observation.is_condition_met for observation in observations):
+            action = DELETE_ACTION
+        if action == DELETE_ACTION:
+            proofs.extend(
+                _Proof(
+                    coverage.copy,
+                    ABSENT,
+                    coverage.observed_at,
+                    coverage.evidence_id,
+                    is_observation=False,
+                )
+                for coverage in self._coverages_by_scope.get((system, category), ())
+                if coverage.observed_at <= at and resource_id not in coverage.resource_ids
             )
-            for coverage in self._coverages_by_scope.get((system, category), ())
-            if coverage.observed_at <= at and resource_id not in coverage.resource_ids
-        )
-        return PLAN_RULES[self._dataset.required_actions[category]], proofs
+        return PLAN_RULES[action], proofs
 
 
 def _is_in_nomination_window(claim: Claim, reported_at: datetime) -> bool:
