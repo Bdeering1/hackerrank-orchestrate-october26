@@ -80,7 +80,7 @@ class _RequestTimes:
 class Auditor:
     """Audit deletion requests against a dataset indexed once."""
 
-    def __init__(self, dataset: Dataset) -> None:
+    def __init__(self, dataset: Dataset, authorizations: Mapping[str, bool]) -> None:
         self._dataset = dataset
         self._identifiers_by_identifier = identity.identifiers_by_identifier(
             dataset.identities, dataset.audit_log
@@ -110,7 +110,7 @@ class Auditor:
         ]
         self._request_times_by_subject: dict[frozenset[str], list[_RequestTimes]] = {}
         for request in dataset.requests:
-            if _authorizes_deletion(request["request_text"]):
+            if authorizations[request["request_text"]]:
                 self._request_times_by_subject.setdefault(self._subject(request), []).append(
                     _RequestTimes(
                         datetime.fromisoformat(request["requested_at"]),
@@ -119,9 +119,7 @@ class Auditor:
                 )
 
     def audited_case(self, request: Mapping[str, str]) -> tuple[str, list[Step]]:
-        """Return the deletion status and ordered steps for one request."""
-        if not _authorizes_deletion(request["request_text"]):
-            return NOT_APPLICABLE, []
+        """Return the deletion status and ordered steps for one deletion request."""
         audit_at = datetime.fromisoformat(request["audit_at"])
         subject = self._subject(request)
         previous_audit_at = self._previous_audit_at(
@@ -294,10 +292,6 @@ class Auditor:
             if coverage.observed_at <= at and resource_id not in coverage.resource_ids
         )
         return PLAN_RULES[self._dataset.required_actions[category]], proofs
-
-
-def _authorizes_deletion(_request_text: str) -> bool:
-    return True
 
 
 def _is_in_nomination_window(claim: Claim, reported_at: datetime) -> bool:

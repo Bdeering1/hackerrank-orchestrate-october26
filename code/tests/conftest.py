@@ -3,7 +3,9 @@ from pathlib import Path
 
 import pytest
 
+import ghost_audit.llm
 from evaluation import runs
+from tests.fakes import FakeTransport, decide_intent, fake_connect
 
 
 @pytest.fixture(autouse=True)
@@ -23,6 +25,15 @@ def isolated_home(
     monkeypatch.setenv("HOME", str(home))
     for env_var, xdg_dir in xdg_dirs.items():
         monkeypatch.setenv(env_var, str(xdg_dir))
+
+
+@pytest.fixture(autouse=True)
+def fake_llm_connection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connect = fake_connect(FakeTransport(decide_intent), tmp_path / "llm-cache")
+    monkeypatch.setattr(ghost_audit.llm, "connect", connect)
 
 
 @pytest.fixture(autouse=True)
