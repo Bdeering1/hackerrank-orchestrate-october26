@@ -43,22 +43,14 @@ def _step(
     }
 
 
-def _absent_account_steps(resource_id: str, evidence_id: str) -> list[dict[str, object]]:
-    return [_step(1, "VERIFICATION", resource_id, "VERIFY_RECORD_ABSENT", "ABSENT", evidence_id)]
-
-
-def _redacted_support_steps(resource_id: str, evidence_id: str) -> list[dict[str, object]]:
-    return [
-        _step(
-            1,
-            "VERIFICATION",
-            resource_id,
-            "VERIFY_RECORD_REDACTED",
-            "REDACTED",
-            evidence_id,
-            SUPPORT_SYSTEM,
-        )
-    ]
+def _verified_steps(
+    resource_id: str,
+    evidence_id: str,
+    operation: str = "VERIFY_RECORD_ABSENT",
+    state: str = "ABSENT",
+    system_id: str = ACCOUNT_SYSTEM,
+) -> list[dict[str, object]]:
+    return [_step(1, "VERIFICATION", resource_id, operation, state, evidence_id, system_id)]
 
 
 def _treatment_steps(
@@ -146,13 +138,13 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_02",
             "COMPLETE",
-            _absent_account_steps("account_202", "evidence_02"),
+            _verified_steps("account_202", "evidence_02"),
             id="historical email linked by log trace",
         ),
         pytest.param(
             "case_03",
             "COMPLETE",
-            _absent_account_steps("account_303", "evidence_02"),
+            _verified_steps("account_303", "evidence_02"),
             id="snapshot after audit_at ignored",
         ),
         pytest.param(
@@ -179,31 +171,31 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_08",
             "COMPLETE",
-            _absent_account_steps("account_606", "evidence_04"),
+            _verified_steps("account_606", "evidence_04"),
             id="catalog link to service export lookup not found",
         ),
         pytest.param(
             "case_09",
             "COMPLETE",
-            _absent_account_steps("account_707", "evidence_05"),
+            _verified_steps("account_707", "evidence_05"),
             id="bracketed log trace",
         ),
         pytest.param(
             "case_10",
             "COMPLETE",
-            _absent_account_steps("account_808", "evidence_05"),
+            _verified_steps("account_808", "evidence_05"),
             id="pipe log trace",
         ),
         pytest.param(
             "case_11",
             "COMPLETE",
-            _absent_account_steps("account_909", "evidence_05"),
+            _verified_steps("account_909", "evidence_05"),
             id="syslog trace with uppercase email",
         ),
         pytest.param(
             "case_12",
             "COMPLETE",
-            _absent_account_steps("account_1010", "evidence_05"),
+            _verified_steps("account_1010", "evidence_05"),
             id="json log trace",
         ),
         pytest.param(
@@ -215,7 +207,7 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_14",
             "COMPLETE",
-            _absent_account_steps("account_1212", "evidence_07"),
+            _verified_steps("account_1212", "evidence_07"),
             id="text handover record",
         ),
         pytest.param(
@@ -227,7 +219,7 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_16",
             "COMPLETE",
-            _absent_account_steps("account_1414", "evidence_03"),
+            _verified_steps("account_1414", "evidence_03"),
             id="later snapshot omits earlier record",
         ),
         pytest.param(
@@ -245,13 +237,13 @@ def test_main_writes_valid_output_and_usage(run):
         pytest.param(
             "case_19",
             "COMPLETE",
-            _absent_account_steps("account_1717", "evidence_11"),
+            _verified_steps("account_1717", "evidence_11"),
             id="log ledger record not found",
         ),
         pytest.param(
             "case_20",
             "COMPLETE",
-            _absent_account_steps("account_1819", "evidence_02"),
+            _verified_steps("account_1819", "evidence_02"),
             id="account deleted before an earlier request ignored",
         ),
     ],
@@ -284,7 +276,9 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
         pytest.param(
             "case_22",
             "COMPLETE",
-            _redacted_support_steps("support_2201", "evidence_13"),
+            _verified_steps(
+                "support_2201", "evidence_13", "VERIFY_RECORD_REDACTED", "REDACTED", SUPPORT_SYSTEM
+            ),
             id="redacted support message retains stable reference",
         ),
         pytest.param(
@@ -315,7 +309,9 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
         pytest.param(
             "case_26",
             "COMPLETE",
-            _redacted_support_steps("support_2601", "evidence_14"),
+            _verified_steps(
+                "support_2601", "evidence_14", "VERIFY_RECORD_REDACTED", "REDACTED", SUPPORT_SYSTEM
+            ),
             id="later snapshot omission does not erase retained support record",
         ),
         pytest.param(
@@ -329,7 +325,7 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                 "VERIFY_RECORD_ANONYMIZED",
                 "ANONYMIZED",
             ),
-            id="analytics profile customer reference remains attributable",
+            id="analytics profile user id remains attributable",
         ),
         pytest.param(
             "case_28",
@@ -343,6 +339,40 @@ def test_main_audits_account_records(run, case_id, expected_status, expected_ste
                 "REDACTED",
             ),
             id="contact index hit remains present after a redacted ticket read",
+        ),
+        pytest.param(
+            "case_29",
+            "INCOMPLETE",
+            _treatment_steps(
+                SUPPORT_SYSTEM,
+                "support_2901",
+                "evidence_07",
+                "REDACT_RECORD",
+                "VERIFY_RECORD_REDACTED",
+                "REDACTED",
+            ),
+            id="ledger identifiable support message is exposed",
+        ),
+        pytest.param(
+            "case_30",
+            "INCOMPLETE",
+            _treatment_steps(
+                ANALYTICS_SYSTEM,
+                "analytics_3001",
+                "evidence_07",
+                "ANONYMIZE_RECORD",
+                "VERIFY_RECORD_ANONYMIZED",
+                "ANONYMIZED",
+            ),
+            id="ledger identifiable analytics profile is exposed",
+        ),
+        pytest.param(
+            "case_31",
+            "COMPLETE",
+            _verified_steps(
+                "support_3101", "evidence_07", "VERIFY_RECORD_REDACTED", "REDACTED", SUPPORT_SYSTEM
+            ),
+            id="ledger redacted support message is compliant",
         ),
     ],
 )

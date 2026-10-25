@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import typing
 
-from ghost_audit.categories import Category, is_always_met, state_from_result
+from ghost_audit.categories import Category, has_any_field, is_always_met, state_from_result
 from ghost_audit.model import ANONYMIZED, PRESENT
 
 if typing.TYPE_CHECKING:
@@ -22,11 +22,7 @@ ATTRIBUTION_FIELDS = (
 def _existing_state(record: Mapping[str, object]) -> str:
     if (result_state := state_from_result(record)) is not None:
         return result_state
-    return (
-        PRESENT
-        if any(record.get(field) is not None for field in ATTRIBUTION_FIELDS)
-        else ANONYMIZED
-    )
+    return PRESENT if has_any_field(record, ATTRIBUTION_FIELDS) else ANONYMIZED
 
 
 CATEGORY = Category(

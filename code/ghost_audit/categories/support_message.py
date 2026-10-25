@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import typing
 
-from ghost_audit.categories import Category, state_from_result
+from ghost_audit.categories import Category, has_any_field, state_from_result
 from ghost_audit.model import PRESENT, REDACTED
 
 if typing.TYPE_CHECKING:
@@ -24,7 +24,7 @@ def _existing_state(record: Mapping[str, object]) -> str:
         return PRESENT
     if (result_state := state_from_result(record)) is not None:
         return result_state
-    if any(record.get(field) is not None for field in REQUESTER_IDENTIFIER_FIELDS):
+    if has_any_field(record, REQUESTER_IDENTIFIER_FIELDS):
         return PRESENT
     return PRESENT if record.get("message_text") not in (None, REDACTED_MESSAGE) else REDACTED
 

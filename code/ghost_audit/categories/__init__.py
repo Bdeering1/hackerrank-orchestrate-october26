@@ -8,7 +8,7 @@ import typing
 from ghost_audit.model import ANONYMIZED, PRESENT, REDACTED
 
 if typing.TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -26,7 +26,7 @@ class Category:
 
 
 def always_present_state(_record: Mapping[str, object]) -> str:
-    """Return the state for an observed record that must exist."""
+    """Return PRESENT for any observed record."""
     return PRESENT
 
 
@@ -41,6 +41,11 @@ def state_from_result(record: Mapping[str, object]) -> str | None:
     if not result:
         return None
     return result if result in {REDACTED, ANONYMIZED} else PRESENT
+
+
+def has_any_field(record: Mapping[str, object], fields: Iterable[str]) -> bool:
+    """Return whether the record holds a value for any of the fields."""
+    return any(record.get(field) is not None for field in fields)
 
 
 def discovered_categories() -> tuple[Category, ...]:

@@ -27,3 +27,6 @@ case_25,marketing.profile@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T0
 case_26,support.snapshot@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
 case_27,analytics.reference@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
 case_28,support.contact@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_29,support.ledger@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_30,analytics.ledger@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
+case_31,support.ledgerredacted@example.com,2026-08-28T09:00:00Z,COMPLETE,2026-09-01T08:00:00Z,2026-09-05T12:00:00Z,Please delete my account.
