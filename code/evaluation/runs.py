@@ -82,8 +82,8 @@ class RunComparison:
     run_id: str
     baseline_scores: list[CaseScore]
     run_scores: list[CaseScore]
-    baseline_cost_usd: float
-    run_cost_usd: float
+    baseline_cost_per_request_usd: float
+    run_cost_per_request_usd: float
     interval: tuple[float, float]
 
     @property
@@ -193,7 +193,9 @@ def compare_runs(baseline_run_id: str, run_id: str, labels_path: Path) -> RunCom
     """Re-score two saved runs over the cases they share and compare them."""
     baseline_output_path = RUNS_DIR / baseline_run_id / OUTPUT_FILENAME
     run_output_path = RUNS_DIR / run_id / OUTPUT_FILENAME
-    shared_case_ids = _output_case_ids(baseline_output_path) & _output_case_ids(run_output_path)
+    baseline_case_ids = _output_case_ids(baseline_output_path)
+    run_case_ids = _output_case_ids(run_output_path)
+    shared_case_ids = baseline_case_ids & run_case_ids
     baseline_scores = case_scores(baseline_output_path, labels_path)
     run_scores = case_scores(run_output_path, labels_path)
     baseline_scores = [score for score in baseline_scores if score.case_id in shared_case_ids]
@@ -203,8 +205,8 @@ def compare_runs(baseline_run_id: str, run_id: str, labels_path: Path) -> RunCom
         run_id,
         baseline_scores,
         run_scores,
-        _cost_usd(baseline_run_id, len(baseline_scores)),
-        _cost_usd(run_id, len(run_scores)),
+        _cost_per_request_usd(baseline_run_id, len(baseline_case_ids)),
+        _cost_per_request_usd(run_id, len(run_case_ids)),
         _bootstrap_interval(baseline_scores, run_scores),
     )
 
@@ -224,11 +226,12 @@ def _outcome(comparison: RunComparison) -> Outcome:
 
 
 def _cheaper_run_outcome(comparison: RunComparison) -> Outcome | None:
-    larger_cost = max(comparison.baseline_cost_usd, comparison.run_cost_usd)
-    cost_gap = abs(comparison.baseline_cost_usd - comparison.run_cost_usd)
-    if larger_cost <= 0 or cost_gap < TIE_COST_FRACTION * larger_cost:
+    baseline_cost = comparison.baseline_cost_per_request_usd
+    run_cost = comparison.run_cost_per_request_usd
+    larger_cost = max(baseline_cost, run_cost)
+    if larger_cost <= 0 or abs(baseline_cost - run_cost) < TIE_COST_FRACTION * larger_cost:
         return None
-    return "promoted" if comparison.run_cost_usd < comparison.baseline_cost_usd else "not_promoted"
+    return "promoted" if run_cost < baseline_cost else "not_promoted"
 
 
 def _is_interactive() -> bool:
@@ -259,10 +262,9 @@ def _bootstrap_interval(
     return deltas[lower], deltas[upper]
 
 
-def _cost_usd(run_id: str, request_count: int) -> float:
-    return usage_summary(
-        RUNS_DIR / run_id / USAGE_FILENAME, request_count
-    ).overall.estimated_cost_usd
+def _cost_per_request_usd(run_id: str, request_count: int) -> float:
+    summary = usage_summary(RUNS_DIR / run_id / USAGE_FILENAME, request_count)
+    return summary.cost_per_request_usd(summary.overall)
 
 
 def _render_diff(comparison: RunComparison) -> str:
@@ -279,7 +281,10 @@ def _render_diff(comparison: RunComparison) -> str:
             f"{comparison.interval[1]:+.1f}] ({BOOTSTRAP_RESAMPLES} resamples, "
             f"seed {BOOTSTRAP_SEED})"
         ),
-        f"Cost: ${comparison.baseline_cost_usd:.6f} -> ${comparison.run_cost_usd:.6f}",
+        (
+            f"Cost per request: ${comparison.baseline_cost_per_request_usd:.6f} -> "
+            f"${comparison.run_cost_per_request_usd:.6f}"
+        ),
         "",
         "| Metric | Baseline | Run | Change |",
         "| --- | ---: | ---: | ---: |",

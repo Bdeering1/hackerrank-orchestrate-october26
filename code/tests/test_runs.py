@@ -25,6 +25,7 @@ EXPENSIVE_USAGE = {
     ]
 }
 SLIGHTLY_CHEAPER_USAGE = {"models": [{**EXPENSIVE_USAGE["models"][0], "input_tokens": 900_000}]}
+DOUBLE_EXPENSIVE_USAGE = {"models": [{**EXPENSIVE_USAGE["models"][0], "input_tokens": 2_000_000}]}
 
 
 @pytest.fixture
@@ -102,6 +103,14 @@ def test_tie_is_decided_by_large_cost_difference(
     record(_perfect_rows(), baseline_usage)
 
     assert _outcome(record(_perfect_rows(), run_usage)) == outcome
+
+
+def test_cost_tiebreak_compares_cost_per_request(record) -> None:
+    rows = _perfect_rows()
+    half_case_count = (len(rows) - 1) // 2
+    record(rows[: 1 + half_case_count], EXPENSIVE_USAGE)
+
+    assert _outcome(record(rows, DOUBLE_EXPENSIVE_USAGE)) == "tie"
 
 
 def test_tied_run_can_be_promoted(record) -> None:
