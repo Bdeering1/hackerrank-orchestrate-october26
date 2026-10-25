@@ -6,14 +6,16 @@ from datetime import datetime, timedelta
 
 from ghost_audit import identity
 from ghost_audit.categories import account
-from ghost_audit.model import ABSENT, PRESENT, REDACTED, Step
+from ghost_audit.model import ABSENT, ANONYMIZED, PRESENT, REDACTED, Step
 from ghost_audit.output_format import (
+    ANONYMIZE_RECORD,
     DELETE_RECORD,
     OPERATION_ORDER,
     REDACT_RECORD,
     REPORT_EXPOSED_PII,
     REPORT_REMAINING_RECORD,
     VERIFY_RECORD_ABSENT,
+    VERIFY_RECORD_ANONYMIZED,
     VERIFY_RECORD_PRESENT,
     VERIFY_RECORD_REDACTED,
     Operation,
@@ -28,6 +30,8 @@ if typing.TYPE_CHECKING:
 COMPLETE = "COMPLETE"
 INCOMPLETE = "INCOMPLETE"
 NOT_APPLICABLE = "NOT_APPLICABLE"
+DELETE_ACTION = "DELETE"
+RETAIN_ACTION = "RETAIN"
 LINK_RESOURCE_IDENTITY = "LINK_RESOURCE_IDENTITY"
 DELETION_WORKER = "deletion_worker"
 TARGET_RESOURCE_MARKER = "Target resource:"
@@ -53,9 +57,12 @@ class PlanRule:
 
 
 PLAN_RULES = {
-    "DELETE": PlanRule(ABSENT, REPORT_REMAINING_RECORD, DELETE_RECORD, VERIFY_RECORD_ABSENT),
+    DELETE_ACTION: PlanRule(ABSENT, REPORT_REMAINING_RECORD, DELETE_RECORD, VERIFY_RECORD_ABSENT),
     "REDACT": PlanRule(REDACTED, REPORT_EXPOSED_PII, REDACT_RECORD, VERIFY_RECORD_REDACTED),
-    "RETAIN": PlanRule(PRESENT, None, None, VERIFY_RECORD_PRESENT),
+    "ANONYMIZE": PlanRule(
+        ANONYMIZED, REPORT_EXPOSED_PII, ANONYMIZE_RECORD, VERIFY_RECORD_ANONYMIZED
+    ),
+    RETAIN_ACTION: PlanRule(PRESENT, None, None, VERIFY_RECORD_PRESENT),
 }
 
 
@@ -277,9 +284,10 @@ class Auditor:
             return None
         system, resource_id = key
         action = self._dataset.required_actions[category]
-        if action == "RETAIN" and _is_retention_expired(observations, at):
-            action = "DELETE"
-        rule = PLAN_RULES[action]
+        if not any(observation.is_condition_met for observation in observations):
+            action = DELETE_ACTION
+        if action == RETAIN_ACTION and _is_retention_expired(observations, at):
+            action = DELETE_ACTION
         proofs = [
             _Proof(
                 observation.copy,
@@ -290,18 +298,19 @@ class Auditor:
             )
             for observation in observations
         ]
-        proofs.extend(
-            _Proof(
-                coverage.copy,
-                ABSENT,
-                coverage.observed_at,
-                coverage.evidence_id,
-                is_observation=False,
+        if action == DELETE_ACTION:
+            proofs.extend(
+                _Proof(
+                    coverage.copy,
+                    ABSENT,
+                    coverage.observed_at,
+                    coverage.evidence_id,
+                    is_observation=False,
+                )
+                for coverage in self._coverages_by_scope.get((system, category), ())
+                if coverage.observed_at <= at and resource_id not in coverage.resource_ids
             )
-            for coverage in self._coverages_by_scope.get((system, category), ())
-            if coverage.observed_at <= at and resource_id not in coverage.resource_ids
-        )
-        return rule, proofs
+        return PLAN_RULES[action], proofs
 
 
 def _is_in_nomination_window(claim: Claim, reported_at: datetime) -> bool:
@@ -311,9 +320,6 @@ def _is_in_nomination_window(claim: Claim, reported_at: datetime) -> bool:
 
 
 def _gap_copies(rule: PlanRule, proofs: Iterable[_Proof]) -> set[str]:
-    # Partial snapshots omit records that still exist, so omission only proves deletion.
-    if rule.end_state != ABSENT:
-        proofs = [proof for proof in proofs if proof.is_observation]
     latest_by_copy: dict[str, _Proof] = {}
     for proof in sorted(
         proofs, key=lambda proof: (proof.observed_at, proof.is_observation), reverse=True

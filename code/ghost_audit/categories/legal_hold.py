@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ghost_audit.categories import Category, present_state
+from ghost_audit.categories import Category, always_present_state, is_always_met
 
 CATEGORY = Category(
     rule_category="LEGAL_HOLD_RECORD",
@@ -9,6 +9,7 @@ CATEGORY = Category(
     collection_names=frozenset({"retained_order_records"}),
     record_types=frozenset({"LEGAL_HOLD_RECORD"}),
     log_events=frozenset(),
-    existing_state=present_state,
+    existing_state=always_present_state,
+    is_condition_met=is_always_met,
     retention_end_field="retained_until",
 )

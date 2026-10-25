@@ -11,5 +11,7 @@ evidence_09,evidence/databases/customer_data_reporting_replica_20260903.sql,cust
 evidence_10,evidence/records/security_audit_ledger_20260904.json,security_audit_export,2026-09-04T10:00:00Z
 evidence_11,evidence/logs/search_index_diagnostic_20260904.log,search_index_diagnostics,2026-09-04T10:00:00Z
 evidence_12,evidence/logs/resource_lookup_trace_20260310_061801.log,service_readback_logs,2026-03-10T06:18:01Z
-evidence_13,evidence/records/retention_cases.json,test_records,2026-09-04T12:00:00Z
-evidence_14,evidence/records/security_retention_export.json,test_records,2026-09-04T12:00:00Z
+evidence_13,evidence/logs/support_analytics_treatments.log,treatment_readback_logs,2026-09-04T12:30:00Z
+evidence_14,evidence/records/support_snapshot_treatments.json,support_snapshot_capture,2026-09-04T12:30:00Z
+evidence_15,evidence/records/retention_cases.json,test_records,2026-09-04T12:00:00Z
+evidence_16,evidence/records/security_retention_export.json,test_records,2026-09-04T12:00:00Z

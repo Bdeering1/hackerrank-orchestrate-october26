@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import typing
 
-from ghost_audit.categories import Category
+from ghost_audit.categories import Category, has_any_field, is_always_met
 from ghost_audit.model import PRESENT, REDACTED
 
 if typing.TYPE_CHECKING:
@@ -12,9 +12,7 @@ _DIRECT_IDENTIFIERS = ("name", "email", "phone", "email_hash")
 
 
 def _existing_state(record: Mapping[str, object]) -> str:
-    if all(record.get(field) is None for field in _DIRECT_IDENTIFIERS):
-        return REDACTED
-    return PRESENT
+    return PRESENT if has_any_field(record, _DIRECT_IDENTIFIERS) else REDACTED
 
 
 CATEGORY = Category(
@@ -25,4 +23,5 @@ CATEGORY = Category(
     record_types=frozenset(),
     log_events=frozenset(),
     existing_state=_existing_state,
+    is_condition_met=is_always_met,
 )
